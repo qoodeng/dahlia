@@ -344,10 +344,11 @@ fn lacks_exclusive_publish(error: &io::Error) -> bool {
         error.kind(),
         io::ErrorKind::Unsupported | io::ErrorKind::PermissionDenied
     ) || cfg!(unix)
-        && matches!(
-            error.raw_os_error(),
-            Some(libc::EPERM | libc::ENOTSUP | libc::EOPNOTSUPP | libc::ENOSYS | libc::EINVAL)
-        )
+        // ENOTSUP and EOPNOTSUPP are the same number on Linux, so compare values.
+        && error.raw_os_error().is_some_and(|code| {
+            [libc::EPERM, libc::ENOTSUP, libc::EOPNOTSUPP, libc::ENOSYS, libc::EINVAL]
+                .contains(&code)
+        })
 }
 /// Write `bytes` to a destination that must not exist yet. A half-written file is removed.
 fn write_destination_new(path: &Path, bytes: &[u8]) -> io::Result<()> {

@@ -532,6 +532,7 @@ pub(crate) fn create_note(cx: &mut App) {
 }
 /// How a system request to terminate is answered. `Cancel` aborts a logout, restart or
 /// shutdown outright, so it is only for a quit that cannot start.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Termination {
     Cancel,
@@ -551,6 +552,7 @@ pub(crate) enum QuitEnd {
 /// Answer the system's request to terminate. Until the save is acknowledged the answer is
 /// `Later`, and `finish_quit` replies when the save ends. `begin_quit` starts the save, or
 /// notes that one is under way, and says whether anything will end up replying.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn answer_termination(
     ready: bool,
     awaiting: &std::cell::Cell<bool>,

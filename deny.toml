@@ -11,6 +11,11 @@ ignore = [
     { id = "RUSTSEC-2026-0206", reason = "rustybuzz is pinned by usvg 0.46 inside GPUI 0.3.6; shapes text in bundled SVGs only" },
     # ttf-parser 0.25, via fontdb/cosmic-text (GPUI's Linux text system) and usvg.
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser is pinned by GPUI 0.3.6's fontdb/cosmic-text and usvg; no maintained drop-in exists" },
+    # zbus_names, zvariant and zvariant_derive, via zbus/atspi: GPUI's Linux accessibility and
+    # secret-service bridge. Linux-only; the macOS release does not contain them.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant is pinned by zbus 5 under GPUI 0.3.6's Linux accessibility; not in the macOS build" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names is pinned by zbus 5 under GPUI 0.3.6's Linux accessibility; not in the macOS build" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive is pinned by zbus 5 under GPUI 0.3.6's Linux accessibility; not in the macOS build" },
 ]
 # bzip2-1.0.6 is the permissive upstream bzip2 license; retain its copyright notice.
 [licenses]

@@ -154,6 +154,7 @@ pub fn reduce_transparency() -> bool {
     }
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn reduce_motion() -> bool {
     #[cfg(target_os = "macos")]
     {
