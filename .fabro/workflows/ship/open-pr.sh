@@ -2,10 +2,11 @@
 # Turns a finished ship run into a pull request for its issue.
 # Run by .github/workflows/factory.yml from the runner's checkout of the default branch.
 #   open-pr.sh <run-id> <issue-number>   (ISSUE_TITLE and DEFAULT_BRANCH in the environment)
-# Everything uses the job's GITHUB_TOKEN (the runner's background service cannot read the
-# owner's keychain login). Events made with that token do not start other workflows, so CI is
-# started explicitly with a workflow dispatch, whose checks count for branch protection.
-# Non-visual changes get GitHub auto-merge, which merges once the required macOS check passes.
+# The branch and PR are made with FACTORY_TOKEN, the owner's fine-grained token (contents,
+# pull requests and issues; no workflows). Events from the job's own GITHUB_TOKEN start no
+# workflows, and GitHub treats its PRs as an outside contributor's, so CI would never run
+# unapproved. With the owner's token the PR starts CI like any other, and non-visual changes
+# get GitHub auto-merge, which merges once the required checks pass.
 set -euo pipefail
 
 run_id="$1"
@@ -31,7 +32,7 @@ git switch -C "$branch"
 git apply --index "$patch"
 git -c user.name="Dahlia Factory" -c user.email="84674359+qoodeng@users.noreply.github.com" \
     commit -q -m "$title" -m "Closes #$issue. Made by Fabro run $run_id."
-auth=$(printf 'x-access-token:%s' "${GH_TOKEN:?}" | base64)
+auth=$(printf 'x-access-token:%s' "${FACTORY_TOKEN:?}" | base64)
 git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
     push --force -q https://github.com/"$GITHUB_REPOSITORY".git "HEAD:refs/heads/$branch"
 
@@ -56,9 +57,8 @@ body="$RUNNER_TEMP/factory-$run_id-body.md"
     head -c 50000 "$workspace/.factory/review.md" 2>/dev/null || echo "No review notes."
 } >"$body"
 
-gh pr create --repo "$GITHUB_REPOSITORY" --base "${DEFAULT_BRANCH:?}" \
+GH_TOKEN="$FACTORY_TOKEN" gh pr create --repo "$GITHUB_REPOSITORY" --base "${DEFAULT_BRANCH:?}" \
     --head "$branch" --title "$title" --body-file "$body" --label "$label"
-gh workflow run CI --repo "$GITHUB_REPOSITORY" --ref "$branch"
 if [ "$label" = "factory-automerge" ]; then
-    gh pr merge "$branch" --repo "$GITHUB_REPOSITORY" --auto --squash
+    GH_TOKEN="$FACTORY_TOKEN" gh pr merge "$branch" --repo "$GITHUB_REPOSITORY" --auto --squash
 fi
