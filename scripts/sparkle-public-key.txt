@@ -3,3 +3,4 @@
 #   .build/sparkle/<version>/payload/bin/generate_keys
 # then add the public key it prints on its own line below these comments and commit it.
 # The private key stays in the login keychain; never commit it.
+81hjoOWMLAdAazr20v16pPNxi887S/LJkdOrAnUgrL4=
