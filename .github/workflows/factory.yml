@@ -7,12 +7,10 @@ on:
   issues:
     types: [labeled]
 
-# The job token pushes the PR branch, opens the PR, starts CI and turns on auto-merge.
+# The job token only comments on and labels the issue; the PR branch and PR use FACTORY_TOKEN.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
   issues: write
-  actions: write
 
 concurrency:
   group: factory-issue-${{ github.event.issue.number }}
@@ -28,6 +26,7 @@ jobs:
     env:
       PATH: /Users/christianstephens/.fabro/bin:/Users/christianstephens/.cargo/bin:/Users/christianstephens/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
       GH_TOKEN: ${{ github.token }}
+      FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
       ISSUE: ${{ github.event.issue.number }}
       ISSUE_TITLE: ${{ github.event.issue.title }}
       ISSUE_BODY: ${{ github.event.issue.body }}
