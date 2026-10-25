@@ -2,9 +2,10 @@
 # Turns a finished ship run into a pull request for its issue.
 # Run by .github/workflows/factory.yml from the runner's checkout of the default branch.
 #   open-pr.sh <run-id> <issue-number>   (ISSUE_TITLE and DEFAULT_BRANCH in the environment)
-# The PR is pushed and opened with the owner's gh login, not the job's GITHUB_TOKEN, because
-# pushes and PRs made with GITHUB_TOKEN do not start CI. Non-visual changes get the
-# factory-automerge label; factory-merge.yml merges them once CI passes.
+# Everything uses the job's GITHUB_TOKEN (the runner's background service cannot read the
+# owner's keychain login). Events made with that token do not start other workflows, so CI is
+# started explicitly with a workflow dispatch, whose checks count for branch protection.
+# Non-visual changes get GitHub auto-merge, which merges once the required macOS check passes.
 set -euo pipefail
 
 run_id="$1"
@@ -30,8 +31,8 @@ git switch -C "$branch"
 git apply --index "$patch"
 git -c user.name="Dahlia Factory" -c user.email="84674359+qoodeng@users.noreply.github.com" \
     commit -q -m "$title" -m "Closes #$issue. Made by Fabro run $run_id."
-# gh's credential helper would prefer the job's read-only GH_TOKEN, so clear it for the push.
-env -u GH_TOKEN -u GITHUB_TOKEN git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+auth=$(printf 'x-access-token:%s' "${GH_TOKEN:?}" | base64)
+git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
     push --force -q https://github.com/"$GITHUB_REPOSITORY".git "HEAD:refs/heads/$branch"
 
 # A missing verdict counts as visual, so nothing merges unseen.
@@ -41,7 +42,7 @@ if [ "$visual" = "no" ]; then
     merge_note="Not visual: merges itself once CI passes."
 else
     label="needs-visual-review"
-    merge_note="Visual (or unsure): waits for you. Add the factory-automerge label or merge it yourself to approve."
+    merge_note="Visual (or unsure): waits for you. Add the factory-automerge label to approve, and it merges once CI passes."
 fi
 
 body="$RUNNER_TEMP/factory-$run_id-body.md"
@@ -55,5 +56,9 @@ body="$RUNNER_TEMP/factory-$run_id-body.md"
     head -c 50000 "$workspace/.factory/review.md" 2>/dev/null || echo "No review notes."
 } >"$body"
 
-env -u GH_TOKEN -u GITHUB_TOKEN gh pr create --repo "$GITHUB_REPOSITORY" --base "${DEFAULT_BRANCH:?}" \
+gh pr create --repo "$GITHUB_REPOSITORY" --base "${DEFAULT_BRANCH:?}" \
     --head "$branch" --title "$title" --body-file "$body" --label "$label"
+gh workflow run CI --repo "$GITHUB_REPOSITORY" --ref "$branch"
+if [ "$label" = "factory-automerge" ]; then
+    gh pr merge "$branch" --repo "$GITHUB_REPOSITORY" --auto --squash
+fi

@@ -7,9 +7,12 @@ on:
   issues:
     types: [labeled]
 
+# The job token pushes the PR branch, opens the PR, starts CI and turns on auto-merge.
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
   issues: write
+  actions: write
 
 concurrency:
   group: factory-issue-${{ github.event.issue.number }}
@@ -17,7 +20,8 @@ concurrency:
 
 jobs:
   ship:
-    # Only the owner's label starts a run; issue text becomes an agent's instructions.
+    # Only the owner's label starts a run: the repository is public, issue text becomes an
+    # agent's instructions, and this job runs on the owner's Mac.
     if: github.event.label.name == 'factory' && github.event.sender.login == github.repository_owner
     runs-on: [self-hosted, dahlia-factory]
     timeout-minutes: 240
