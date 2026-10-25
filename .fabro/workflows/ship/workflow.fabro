@@ -39,6 +39,7 @@ Goal:
 {{ goal }}
 
 Carry out .factory/plan.md. Match the surrounding code's naming, comment density and idiom.
+Write Rust to ~/.agents/skills/rust-best-practices/SKILL.md (BeautifulRust); read it first.
 Add the tests the plan names. Before you finish, run `bash .fabro/workflows/ship/verify.sh`
 and make it pass; it runs the same checks as the Verify stage.
 If your shell tool takes a timeout (for example timeout_ms), give every cargo or verify.sh
@@ -54,6 +55,7 @@ The checks or the review failed. Run `bash .fabro/workflows/ship/verify.sh`, wit
 timeout if your shell tool takes one: it names the failing command after FAILED: and prints the end of its output,
 where the real errors are. Also read .factory/review.md if it exists. Fix the cause in the source,
 then run verify.sh again until it passes.
+Write Rust to ~/.agents/skills/rust-best-practices/SKILL.md (BeautifulRust).
 Do not weaken, skip or delete tests to make them pass. Never edit .fabro/, vendor/, patches/ or .github/."]
 
     // Thorough reviews of test-heavy changes have taken about 20 minutes.
@@ -61,6 +63,7 @@ Do not weaken, skip or delete tests to make them pass. Never edit .fabro/, vendo
 Goal:
 {{ goal }}
 
+Read ~/.agents/skills/rust-review/SKILL.md (BeautifulRust) and apply its priorities to the Rust in this change.
 Review the change on this branch against the goal: run `git diff HEAD~..HEAD` or compare with the
 starting commit, read the changed files and tests. Check correctness, scope creep, tests that
 actually exercise the change, and that behaviour users see is unchanged unless the goal says otherwise.
