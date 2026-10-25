@@ -13,6 +13,10 @@ pub struct Imported {
     pub disclosures: Vec<String>,
 }
 
+const MAX_IMPORT_FILES: usize = 256;
+const MAX_SOURCE_BYTES: usize = 10 * 1024 * 1024;
+const MAX_IMPORT_BATCH_BYTES: usize = 256 * 1024 * 1024;
+
 pub fn prepare(paths: Vec<PathBuf>) -> io::Result<Vec<Imported>> {
     let schema = commonmark_schema();
     let mut prepared = Vec::new();
@@ -66,7 +70,7 @@ pub fn prepare(paths: Vec<PathBuf>) -> io::Result<Vec<Imported>> {
             files.push(path);
         }
     }
-    if files.len() > 256 {
+    if files.len() > MAX_IMPORT_FILES {
         return Err(io::Error::other("Choose 256 files or fewer."));
     }
     let mut total_bytes = 0usize;
@@ -100,14 +104,14 @@ pub fn prepare(paths: Vec<PathBuf>) -> io::Result<Vec<Imported>> {
             path.parent()
                 .ok_or_else(|| io::Error::other("Choose a folder."))?,
         )?;
-        let bytes = read_bounded(&path, 10 * 1024 * 1024).map_err(|error| {
+        let bytes = read_bounded(&path, MAX_SOURCE_BYTES).map_err(|error| {
             io::Error::other(format!(
                 "{}: {}",
                 crate::copy::file(&path),
                 crate::copy::plain(&error)
             ))
         })?;
-        if bytes.len() > 10 * 1024 * 1024 {
+        if bytes.len() > MAX_SOURCE_BYTES {
             return Err(io::Error::other(format!(
                 "{} is larger than 10 MB. Choose a smaller file.",
                 crate::copy::file(&path)
@@ -127,7 +131,7 @@ pub fn prepare(paths: Vec<PathBuf>) -> io::Result<Vec<Imported>> {
             .to_owned();
         let (text, images) = crate::attachments::managed_source(&text, &base)?;
         total_bytes += text.len() + images.values().map(Vec::len).sum::<usize>();
-        if total_bytes > 256 * 1024 * 1024 {
+        if total_bytes > MAX_IMPORT_BATCH_BYTES {
             return Err(io::Error::other(
                 "These files are too large to import together. Import fewer at a time.",
             ));
@@ -556,6 +560,81 @@ fn rename_directory_exclusive(source: &Path, destination: &Path) -> io::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    fn snapshot_folder(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+        let mut files = BTreeMap::new();
+        for entry in fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            files.insert(name, fs::read(entry.path()).unwrap());
+        }
+        files
+    }
+
+    fn assert_folder_unchanged(dir: &Path, before: &BTreeMap<String, Vec<u8>>) {
+        assert_eq!(snapshot_folder(dir), *before);
+    }
+
+    #[test]
+    fn a_folder_of_256_notes_imports_and_257_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        for index in 0..MAX_IMPORT_FILES {
+            fs::write(
+                root.path().join(format!("note-{index:03}.md")),
+                format!("# {index}\n"),
+            )
+            .unwrap();
+        }
+        let prepared = prepare(vec![root.path().to_path_buf()]).unwrap();
+        assert_eq!(prepared.len(), MAX_IMPORT_FILES);
+        fs::write(root.path().join("note-256.md"), "# one too many\n").unwrap();
+        let before = snapshot_folder(root.path());
+        let error = prepare(vec![root.path().to_path_buf()]).err().unwrap();
+        assert_eq!(error.to_string(), "Choose 256 files or fewer.");
+        assert_folder_unchanged(root.path(), &before);
+    }
+
+    #[test]
+    fn a_10_mib_source_imports_and_one_more_byte_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let line = b"a\n";
+        let mut exact = Vec::with_capacity(MAX_SOURCE_BYTES);
+        for _ in 0..MAX_SOURCE_BYTES / line.len() {
+            exact.extend_from_slice(line);
+        }
+        assert_eq!(exact.len(), MAX_SOURCE_BYTES);
+        let path = root.path().join("exact.md");
+        fs::write(&path, &exact).unwrap();
+        let prepared = prepare(vec![path.clone()]).unwrap();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].text.len(), MAX_SOURCE_BYTES);
+        let big = root.path().join("big.md");
+        let mut too_big = exact.clone();
+        too_big.push(b'b');
+        assert_eq!(too_big.len(), MAX_SOURCE_BYTES + 1);
+        fs::write(&big, &too_big).unwrap();
+        let error = prepare(vec![big.clone()]).err().unwrap();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{} is larger than 10 MB. Choose a smaller file.",
+                crate::copy::file(&big)
+            )
+        );
+        fs::write(root.path().join("small.md"), "# ok\n").unwrap();
+        let before = snapshot_folder(root.path());
+        let error = prepare(vec![root.path().to_path_buf()]).err().unwrap();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{} is larger than 10 MB. Choose a smaller file.",
+                crate::copy::file(&big)
+            )
+        );
+        assert_folder_unchanged(root.path(), &before);
+    }
+
     #[test]
     fn folder_import_skips_non_regular_children_with_a_disclosure() {
         let root = tempfile::tempdir().unwrap();
