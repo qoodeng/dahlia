@@ -35,6 +35,10 @@ carries `0.0.0` development values that packaging replaces.
 
 Do these once, on the Mac that builds releases.
 
+`scripts/setup-release.sh` walks through all of it step by step (it checks out `main`, verifies
+the certificate, saves the notarization profile, creates and backs up the Sparkle key, and
+commits the public key). The steps it follows:
+
 1. **Check the Developer ID certificate.**
    `security find-identity -v -p codesigning` must list
    `Developer ID Application: Christian Stephens (H45U5SB635)`. If the keychain has more than
