@@ -1,0 +1,106 @@
+{
+  "path": "/System/Applications/Stickies.app/Contents/Resources/Base.lproj/SNDocument.nib",
+  "sha256": "59500a66b364cc1b637345af0c097efb1b80227f9ed55a721fae6b47cd161632",
+  "archive_version": 1,
+  "coder_version": 10,
+  "windows": [
+    {
+      "object": 87,
+      "class": "NSWindowTemplate",
+      "fields": {
+        "NSWindowStyleMask": {
+          "type": 0,
+          "value": 14
+        },
+        "NSWindowAllowNontitledResizable": {
+          "type": 5,
+          "value": false
+        },
+        "NSWindowBacking": {
+          "type": 0,
+          "value": 2
+        },
+        "NSWindowRect": {
+          "type": 10,
+          "value": 88
+        },
+        "NSWTFlags": {
+          "type": 2,
+          "value": 1618477056
+        },
+        "NSWindowTitle": {
+          "type": 10,
+          "value": 89
+        },
+        "NSWindowSubtitle": {
+          "type": 10,
+          "value": 21
+        },
+        "NSWindowClass": {
+          "type": 10,
+          "value": 92
+        },
+        "NSViewClass": {
+          "type": 9,
+          "value": null
+        },
+        "NSUserInterfaceItemIdentifier": {
+          "type": 9,
+          "value": null
+        },
+        "NSWindowContentMinSize": {
+          "type": 10,
+          "value": 93
+        },
+        "NSWindowView": {
+          "type": 10,
+          "value": 94
+        },
+        "NSScreenRect": {
+          "type": 10,
+          "value": 202
+        },
+        "NSMinSize": {
+          "type": 10,
+          "value": 93
+        },
+        "NSMaxSize": {
+          "type": 10,
+          "value": 203
+        },
+        "NSFrameAutosaveName": {
+          "type": 10,
+          "value": 21
+        },
+        "NSWindowAnimationBehavior": {
+          "type": 0,
+          "value": 2
+        },
+        "NSWindowCollectionBehavior": {
+          "type": 1,
+          "value": 528
+        },
+        "NSWindowIsRestorable": {
+          "type": 4,
+          "value": true
+        },
+        "NSMinFullScreenContentSize": {
+          "type": 10,
+          "value": 204
+        },
+        "NSMaxFullScreenContentSize": {
+          "type": 10,
+          "value": 204
+        },
+        "NSWindowTabbingMode": {
+          "type": 0,
+          "value": 2
+        },
+        "IBClassReference": {
+          "type": 10,
+          "value": 205
+        }
+      }
+    }
+  ]
+}

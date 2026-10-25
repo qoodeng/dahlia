@@ -1,0 +1,7 @@
+{
+  "source": "Unmodified Paper Mono fonts from the read-only Swift Ortensia reference Resources/Fonts; original upstream https://github.com/paper-design/paper-mono; SIL OFL 1.1 in LICENSE.txt.",
+  "sha256": {
+    "PaperMono-Bold.otf": "e8f9a75d833429df9006eaa329b9da4b93323d8cde43411bb378f421bcb089ca",
+    "PaperMono-Regular.otf": "464b128f266a98cccb430ff3431741076e15bc3f658adaa7ad53c82575200f05"
+  }
+}

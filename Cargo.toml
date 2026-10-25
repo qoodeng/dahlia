@@ -1,0 +1,79 @@
+[package]
+name = "dahlia"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT"
+
+[lib]
+# The binary harness tests the shared private application tree, including perf_bench.
+test = false
+
+[dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.6" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.6", features = ["font-kit", "runtime_shaders"] }
+gpui-base = "=0.6.6"
+markraft-gpui = { path = "vendor/markraft/crates/markraft-gpui" }
+markraft-core = { path = "vendor/markraft/crates/markraft-core" }
+markraft-commonmark = { path = "vendor/markraft/crates/markraft-commonmark" }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+dirs = "6"
+futures = "0.3"
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
+sha2 = "0.11"
+percent-encoding = "2"
+url = "2"
+unicode-segmentation = "1"
+thiserror = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.6", features = ["x11", "wayland"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { package = "gpui-pre-macos", version = "=0.3.6" }
+raw-window-handle = "0.6"
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSUserDefaults", "NSDictionary", "NSString", "NSValue", "NSNotification", "NSOperation", "NSBundle", "NSError", "NSObjCRuntime", "block2"] }
+dispatch2 = "0.3"
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["CALayer", "CAMetalLayer", "objc2-core-foundation", "objc2-core-graphics"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGColorSpace"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSView", "NSWindow", "NSEvent", "NSResponder", "NSVisualEffectView", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSWorkspace", "NSAccessibility", "NSAppearance", "NSAlert", "NSButton", "NSScreen", "NSColor", "NSColorSpace", "NSApplication"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSMenu", "NSTextView"] }
+
+[[test]]
+name = "macos_input"
+path = "tests/macos_input.rs"
+harness = false
+
+[dev-dependencies]
+tempfile = "3"
+gpui = { package = "gpui-pre", version = "=0.3.6", features = ["test-support"] }
+
+[patch.crates-io]
+metal = { path = ".build/dependencies/metal" }
+pulp = { path = ".build/dependencies/pulp" }
+gpui-base = { path = ".build/dependencies/gpui-base" }
+gpui-pre-macos = { path = "vendor/markraft/.build/dependencies/gpui-pre-macos" }
+
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = 0
+strip = "none"
+
+[profile.dev.build-override]
+strip = "none"
+
+[profile.release.build-override]
+strip = "none"

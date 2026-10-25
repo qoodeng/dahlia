@@ -1,0 +1,219 @@
+diff --git a/crates/markraft-commonmark/src/source.rs b/crates/markraft-commonmark/src/source.rs
+index f687f1b..397bdb7 100644
+--- a/crates/markraft-commonmark/src/source.rs
++++ b/crates/markraft-commonmark/src/source.rs
+@@ -119,6 +119,9 @@ impl SourceDocument {
+     /// first — a save is not a keystroke — and a file that would not read as
+     /// `document` is refused rather than written.
+     pub fn render(&self, schema: &Schema, document: &Node) -> Result<String, SourceError> {
++        if let Some(next) = self.render_batched(schema, document) {
++            return Ok(next.source);
++        }
+         let rendered = self.render_patched(schema, document)?;
+         let rendered = self.renumbered(schema, document, rendered);
+         if rendered == self.source {
+@@ -127,6 +130,133 @@ impl SourceDocument {
+         self.validate(schema, document, rendered)
+     }
+ 
++    /// Validate a large, shape-preserving edit in overlapping block windows.
++    /// Windows include their neighbors, so a fence/list/paragraph cannot silently
++    /// consume the block across a boundary. Definitions and ordered-list numbering
++    /// use the established whole-document path because they carry nonlocal context.
++    fn render_batched(&self, schema: &Schema, document: &Node) -> Option<Self> {
++        let old = self.document.content().as_slice();
++        let new = document.content().as_slice();
++        if !self.mapped
++            || old.len() < 64
++            || old.len() != new.len()
++            || old.len() != self.blocks.len()
++            || document == &self.document
++            || old.iter().zip(new).any(|(a, b)| !same_shape(schema, a, b))
++            || !crate::textblock::definition_candidates(schema, &self.document).is_empty()
++            || !crate::textblock::definition_candidates(schema, document).is_empty()
++        {
++            return None;
++        }
++        let ordered = schema.node_id(crate::schema::ORDERED_LIST);
++        let mut has_ordered = false;
++        document.descendants(&mut |node, _, _, _| {
++            has_ordered |= Some(node.type_id()) == ordered;
++            !has_ordered
++        });
++        if has_ordered {
++            return None;
++        }
++        let threads = std::thread::available_parallelism()
++            .map_or(1, |n| n.get())
++            .min(8);
++        let chunk = old.len().div_ceil(threads);
++        let pieces = std::thread::scope(|scope| {
++            let workers: Vec<_> = (0..old.len())
++                .step_by(chunk)
++                .map(|start| {
++                    scope.spawn(move || {
++                        (start..(start + chunk).min(old.len()))
++                            .map(|i| {
++                                patch_block(
++                                    schema,
++                                    &old[i],
++                                    &new[i],
++                                    &self.source[self.blocks[i].clone()],
++                                    self.newline,
++                                )
++                            })
++                            .collect::<Option<Vec<_>>>()
++                    })
++                })
++                .collect();
++            workers
++                .into_iter()
++                .map(|w| w.join().ok()?)
++                .collect::<Option<Vec<_>>>()
++        })?;
++        let mut source = self.source[..self.blocks[0].start].to_owned();
++        let mut boundaries = Vec::with_capacity(new.len());
++        for (i, piece) in pieces.into_iter().flatten().enumerate() {
++            let start = source.len();
++            source.push_str(&piece);
++            boundaries.push(start..source.len());
++            let stop = self
++                .blocks
++                .get(i + 1)
++                .map_or(self.source.len(), |b| b.start);
++            source.push_str(&self.source[self.blocks[i].end..stop]);
++        }
++        let chunk = new.len().div_ceil(threads);
++        let read = std::thread::scope(|scope| {
++            let source = &source;
++            let boundaries = &boundaries;
++            let workers: Vec<_> = (0..new.len())
++                .step_by(chunk)
++                .map(|start| {
++                    scope.spawn(move || {
++                        let end = (start + chunk).min(new.len());
++                        let lo = start.saturating_sub(1);
++                        let hi = (end + 1).min(new.len());
++                        let bytes = boundaries[lo].start..boundaries[hi - 1].end;
++                        let (read, ranges, mapped) =
++                            read_blocks(schema, &source[bytes.clone()], bytes.start).ok()?;
++                        let expected =
++                            document.copy(Fragment::from_nodes(new[lo..hi].iter().cloned()));
++                        if !mapped
++                            || read.child_count() != hi - lo
++                            || !reads_as(schema, &read, &expected)
++                        {
++                            return None;
++                        }
++                        let nodes = read
++                            .children()
++                            .skip(start - lo)
++                            .take(end - start)
++                            .cloned()
++                            .collect::<Vec<_>>();
++                        let ranges = ranges[start - lo..end - lo].to_vec();
++                        Some((nodes, ranges))
++                    })
++                })
++                .collect();
++            workers
++                .into_iter()
++                .map(|w| w.join().ok()?)
++                .collect::<Option<Vec<_>>>()
++        })?;
++        let mut nodes = Vec::with_capacity(new.len());
++        let mut blocks = Vec::with_capacity(new.len());
++        for (part, ranges) in read {
++            nodes.extend(part);
++            blocks.extend(ranges);
++        }
++        let next = Self {
++            source,
++            document: document.clone(),
++            read: document.copy(Fragment::from_nodes(nodes)),
++            body_start: self.body_start,
++            blocks,
++            mapped: true,
++            newline: self.newline,
++        };
++        #[cfg(debug_assertions)]
++        if let Ok(whole) = Self::parse(schema, &next.source) {
++            debug_assert!(whole.read == next.read && whole.blocks == next.blocks);
++        }
++        Some(next)
++    }
++
+     /// Whether [`SourceDocument::render`] can write `document`, without the
+     /// ordinals it counts again: a list numbered as the file had it reads the
+     /// same, so the answer is the same, and an editor asks on every keystroke.
+@@ -1095,6 +1225,11 @@ impl SourceTrack {
+         if document == &current.document {
+             return Ok(current.source.clone());
+         }
++        if let Some(next) = current.render_batched(schema, document) {
++            let rendered = next.source.clone();
++            *held = Some(std::sync::Arc::new(next));
++            return Ok(rendered);
++        }
+         // What the file read could hold, the track holds too: an edit its
+         // last file cannot take from where it stands is written against the
+         // file read, as it would have been without the track.
+@@ -2576,6 +2711,58 @@ mod tests {
+     use super::SourceDocument;
+     use crate::commonmark_schema;
+ 
++    #[test]
++    fn batched_source_preserves_bytes_and_matches_whole_parsing_at_every_boundary() {
++        let schema = commonmark_schema();
++        for newline in ["\n", "\r\n"] {
++            let body: String = (0..160)
++                .map(|i| match i % 4 {
++                    0 => format!("heading {i}\n==========\n\n"),
++                    1 => format!("needle **bold** {i}\n\n"),
++                    2 => format!("- needle item {i}\n- other item\n\n"),
++                    _ => format!("```rust\nneedle {i}\n```\n\n"),
++                })
++                .collect();
++            let original =
++                format!("\u{feff}---\nopaque: keep\n---\n\n{body}").replace('\n', newline);
++            let expected = original.replace("needle", "pin");
++            let baseline = SourceDocument::parse(&schema, &original).unwrap();
++            let whole = SourceDocument::parse(&schema, &expected).unwrap();
++            let next = baseline.render_batched(&schema, whole.document()).unwrap();
++            assert_eq!(next.source, expected);
++            assert_eq!(next.read, whole.read);
++            assert_eq!(next.blocks, whole.blocks);
++            let track = super::SourceTrack::new(baseline);
++            assert_eq!(track.write(&schema, whole.document()).unwrap(), expected);
++            assert_eq!(track.save(&schema, whole.document()).unwrap(), expected);
++            assert_eq!(
++                track.write(&schema, track.origin().document()).unwrap(),
++                original
++            );
++        }
++    }
++    #[test]
++    fn batched_source_falls_back_for_definitions_numbering_and_structural_edits() {
++        let schema = commonmark_schema();
++        let filler = "needle\n\n".repeat(80);
++        for tail in ["[ref]: /needle\n", "1. needle\n", ""] {
++            let original = format!("{filler}{tail}");
++            let baseline = SourceDocument::parse(&schema, &original).unwrap();
++            let edited = if tail.is_empty() {
++                original.replacen("needle", "# heading", 1)
++            } else {
++                original.replace("needle", "pin")
++            };
++            let parsed = SourceDocument::parse(&schema, &edited).unwrap();
++            assert!(
++                baseline
++                    .render_batched(&schema, parsed.document())
++                    .is_none()
++            );
++            assert_eq!(baseline.render(&schema, parsed.document()).unwrap(), edited);
++        }
++    }
++
+     /// An edit inside one block, or between two, is read again only near
+     /// itself; one that reaches the front matter or a definition is not.
+     #[test]

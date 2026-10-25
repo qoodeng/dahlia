@@ -1,0 +1,65 @@
+diff --git a/crates/markraft-core/src/kind/reading.rs b/crates/markraft-core/src/kind/reading.rs
+index 6224aab..4e8619b 100644
+--- a/crates/markraft-core/src/kind/reading.rs
++++ b/crates/markraft-core/src/kind/reading.rs
+@@ -163,13 +163,18 @@ impl ShownText {
+         }
+         let folded = fold(&self.text);
+         let mut from = 0usize;
++        let mut scalar_from = 0usize;
+         let mut hits = Vec::new();
+         while let Some(at) = folded.text[from..].find(&folded_query.text) {
+             let start_byte = from + at;
+             let end_byte = start_byte + folded_query.text.len();
+-            let start = folded.origin[char_index(&folded.text, start_byte)];
+-            // Convert the exclusive UTF-8 boundary before stepping back a character.
+-            let end = folded.origin[char_index(&folded.text, end_byte) - 1] + 1;
++            // Matches never overlap. Count only the bytes since the previous
++            // match instead of re-scanning the prefix for every hit.
++            let scalar_start = scalar_from + folded.text[from..start_byte].chars().count();
++            let scalar_end = scalar_start + folded.text[start_byte..end_byte].chars().count();
++            let start = folded.origin[scalar_start];
++            let end = folded.origin[scalar_end - 1] + 1;
++            scalar_from = scalar_end;
+             let range = self.spans[start].start..self.spans[end - 1].end;
+             if range.start < range.end {
+                 hits.push(ReadingMatch {
+@@ -280,10 +285,6 @@ fn is_combining_mark(ch: char) -> bool {
+     )
+ }
+ 
+-fn char_index(text: &str, byte: usize) -> usize {
+-    text[..byte].chars().count()
+-}
+-
+ /// A range in document positions, including structural node boundaries.
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub struct DocRange(pub Range<usize>);
+@@ -418,3 +419,27 @@ pub fn atom_label<'a>(types: &DocTypes, node: &'a Node) -> Option<(AtomTextRole,
+         None
+     }
+ }
++
++#[cfg(test)]
++mod batch_search_tests {
++    use super::*;
++    #[test]
++    fn repeated_unicode_folds_keep_scalar_coordinates_after_every_match() {
++        let text = "中 İST cafe\u{301} 🙂 ".repeat(2048);
++        let count = text.chars().count();
++        let shown = ShownText {
++            text,
++            spans: (0..count).map(|i| i + 10..i + 11).collect(),
++            mappings: vec![CharacterMapping::Exact; count],
++            grapheme_boundaries: vec![true; count + 1],
++        };
++        let width = "中 İST cafe\u{301} 🙂 ".chars().count();
++        for (query, start, length) in [("ist", 2, 3), ("cafe", 6, 4), ("🙂", 12, 1)] {
++            let hits = shown.matches(query);
++            assert_eq!(hits.len(), 2048);
++            for (i, hit) in hits.into_iter().enumerate() {
++                assert_eq!(hit, i * width + start + 10..i * width + start + length + 10);
++            }
++        }
++    }
++}

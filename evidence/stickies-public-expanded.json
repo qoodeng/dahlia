@@ -1,0 +1,95 @@
+{
+  "method" : "Public CGWindowListCopyWindowInfo metadata only; no pixel capture or note-title\/content access.",
+  "screens" : [
+    {
+      "frame" : "{{0, 0}, {1470, 956}}",
+      "scale" : 2
+    }
+  ],
+  "windows" : [
+    {
+      "kCGWindowAlpha" : 1,
+      "kCGWindowBounds" : {
+        "Height" : 200,
+        "Width" : 300,
+        "X" : 441,
+        "Y" : 592
+      },
+      "kCGWindowLayer" : 0,
+      "kCGWindowNumber" : 19342,
+      "kCGWindowSharingState" : 0
+    },
+    {
+      "kCGWindowAlpha" : 1,
+      "kCGWindowBounds" : {
+        "Height" : 200,
+        "Width" : 300,
+        "X" : 69,
+        "Y" : 481
+      },
+      "kCGWindowLayer" : 0,
+      "kCGWindowNumber" : 13895,
+      "kCGWindowSharingState" : 0
+    },
+    {
+      "kCGWindowAlpha" : 1,
+      "kCGWindowBounds" : {
+        "Height" : 200,
+        "Width" : 300,
+        "X" : 69,
+        "Y" : 469
+      },
+      "kCGWindowLayer" : 0,
+      "kCGWindowNumber" : 13896,
+      "kCGWindowSharingState" : 0
+    },
+    {
+      "kCGWindowAlpha" : 1,
+      "kCGWindowBounds" : {
+        "Height" : 200,
+        "Width" : 300,
+        "X" : 69,
+        "Y" : 669
+      },
+      "kCGWindowLayer" : 0,
+      "kCGWindowNumber" : 13899,
+      "kCGWindowSharingState" : 0
+    },
+    {
+      "kCGWindowAlpha" : 1,
+      "kCGWindowBounds" : {
+        "Height" : 200,
+        "Width" : 300,
+        "X" : 69,
+        "Y" : 481
+      },
+      "kCGWindowLayer" : 0,
+      "kCGWindowNumber" : 13898,
+      "kCGWindowSharingState" : 0
+    },
+    {
+      "kCGWindowAlpha" : 1,
+      "kCGWindowBounds" : {
+        "Height" : 260,
+        "Width" : 352,
+        "X" : 69,
+        "Y" : 209
+      },
+      "kCGWindowLayer" : 0,
+      "kCGWindowNumber" : 13900,
+      "kCGWindowSharingState" : 0
+    },
+    {
+      "kCGWindowAlpha" : 1,
+      "kCGWindowBounds" : {
+        "Height" : 268,
+        "Width" : 355,
+        "X" : 48,
+        "Y" : 187
+      },
+      "kCGWindowLayer" : 0,
+      "kCGWindowNumber" : 13897,
+      "kCGWindowSharingState" : 0
+    }
+  ]
+}

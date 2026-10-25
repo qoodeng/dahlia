@@ -1,0 +1,125 @@
+diff --git a/crates/markraft-gpui/src/find.rs b/crates/markraft-gpui/src/find.rs
+index 5ef9472..0fc035b 100644
+--- a/crates/markraft-gpui/src/find.rs
++++ b/crates/markraft-gpui/src/find.rs
+@@ -47,6 +47,12 @@ pub(crate) enum Command {
+         query: String,
+         forward: bool,
+     },
++    /// Like `Query`, with hits a host found off the main thread by [`find_hits_in`]
++    /// against the current document.
++    Results {
++        query: String,
++        hits: Vec<Range<usize>>,
++    },
+ }
+ 
+ /// The query and the hits it has in the current document.
+@@ -87,6 +93,10 @@ impl Find {
+         self.preview.is_some()
+     }
+ 
++    pub(crate) fn hits(&self) -> &[Range<usize>] {
++        &self.hits
++    }
++
+     fn current_range(&self) -> Option<Range<usize>> {
+         self.current.and_then(|index| self.hits.get(index).cloned())
+     }
+@@ -139,6 +149,16 @@ pub(crate) fn apply(
+                 ..Find::default()
+             }
+         }
++        Command::Results { query, hits } => {
++            let hits = if query.is_empty() { Vec::new() } else { hits.clone() };
++            let current = place(&hits, caret_of(state));
++            Find {
++                query: query.clone(),
++                hits,
++                current,
++                ..Find::default()
++            }
++        }
+         Command::Next => step(previous, 1),
+         Command::Previous => step(previous, -1),
+         Command::BeginPreview => {
+@@ -207,7 +227,7 @@ pub(crate) fn apply(
+ /// restores non-text selections instead of reducing them to a character range.
+ pub(crate) fn selection_for(previous: &Find, next: &Find, command: &Command) -> Option<Selection> {
+     match command {
+-        Command::Query(query) if query.is_empty() => None,
++        Command::Query(query) | Command::Results { query, .. } if query.is_empty() => None,
+         Command::BeginPreview | Command::AcceptPreview => None,
+         Command::CancelPreview => previous.preview.as_ref().map(|p| p.selection.clone()),
+         Command::Preview(_) if previous.preview.is_none() => None,
+@@ -293,6 +313,13 @@ fn step(previous: &Find, delta: isize) -> Find {
+     }
+ }
+ 
++/// Every hit of `query` in `state`'s document, as find records them. Pure, so a host can
++/// search a large document off the main thread and show the result with
++/// [`crate::EditorView::set_find_results`].
++pub fn find_hits_in(state: &EditorState, types: &DocTypes, query: &str) -> Vec<Range<usize>> {
++    hits_of(state, types, query)
++}
++
+ fn hits_of(state: &EditorState, types: &DocTypes, query: &str) -> Vec<Range<usize>> {
+     if query.is_empty() {
+         return Vec::new();
+diff --git a/crates/markraft-gpui/src/lib.rs b/crates/markraft-gpui/src/lib.rs
+index 7d06945..9f0a99d 100644
+--- a/crates/markraft-gpui/src/lib.rs
++++ b/crates/markraft-gpui/src/lib.rs
+@@ -52,7 +52,7 @@ pub use extension::{
+     ActionHandler, CaretShape, EXTENSION_ORIGIN_PREFIX, EditorCx, Extension, ExtensionHandle,
+     ExtensionPayload, InputPolicy, Overlay, Update,
+ };
+-pub use find::FindStatus;
++pub use find::{FindStatus, find_hits_in};
+ pub use markraft_core::commands::ColumnAlignment;
+ pub use markraft_core::kind::{CalloutAttrs, DocTypes, DocumentKind, Formatting, PlainKind};
+ use markraft_core::kind::{chains, conceal};
+@@ -1207,6 +1207,43 @@ impl EditorView {
+         self.run_find(find::Command::Query(query), cx);
+     }
+ 
++    /// [`Self::set_find_query`] with `hits` found by [`find_hits_in`] against this
++    /// document, so a large document is searched off the main thread. The host
++    /// must discard hits found against a document that has since changed.
++    pub fn set_find_results(
++        &mut self,
++        query: String,
++        hits: Vec<std::ops::Range<usize>>,
++        cx: &mut Context<Self>,
++    ) {
++        self.run_find(find::Command::Results { query, hits }, cx);
++    }
++
++    /// Every hit of the current query, in document order.
++    pub fn find_hits(&self) -> Vec<std::ops::Range<usize>> {
++        self.state
++            .field(&self.find)
++            .map(|found| found.hits().to_vec())
++            .unwrap_or_default()
++    }
++
++    /// The editor state without a find query, so a host can plan many edits against
++    /// it without every planned edit searching the whole document again.
++    pub fn state_without_find(&self) -> EditorState {
++        let clear = TransactionSpec::new()
++            .effect(find::effect(find::Command::Query(String::new())))
++            .add_to_history(false);
++        self.state
++            .update([clear])
++            .map(|transaction| transaction.state().clone())
++            .unwrap_or_else(|_| self.state.clone())
++    }
++
++    /// The node kinds this view reads the document with, as [`find_hits_in`] needs them.
++    pub fn doc_types(&self) -> DocTypes {
++        self.types.clone()
++    }
++
+     /// Select the next hit, wrapping to the first.
+     pub fn find_next(&mut self, cx: &mut Context<Self>) {
+         self.run_find(find::Command::Next, cx);

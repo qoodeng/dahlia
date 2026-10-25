@@ -1,0 +1,149 @@
+diff --git a/crates/markraft-gpui/src/images.rs b/crates/markraft-gpui/src/images.rs
+index 731b2f9..e594fdd 100644
+--- a/crates/markraft-gpui/src/images.rs
++++ b/crates/markraft-gpui/src/images.rs
+@@ -97,6 +97,8 @@ pub(crate) struct Images {
+     base: Option<PathBuf>,
+     root: Option<PathBuf>,
+     root_invalid: bool,
++    /// Load local files only from inside `base` or `root`.
++    confined: bool,
+     cache: RefCell<HashMap<PathBuf, CachedImage>>,
+     checked_at: Option<Instant>,
+     /// Whether remote sources are fetched at all. Off, every one reads as
+@@ -145,13 +147,44 @@ impl Images {
+         self.checked_at = None;
+     }
+ 
++    /// Keep local images inside the base or root directory: `file:` URLs, `..`
++    /// segments and symbolic links that lead elsewhere read as invalid paths.
++    pub(crate) fn set_confined(&mut self, confined: bool) {
++        self.confined = confined;
++        self.cache.get_mut().clear();
++        self.checked_at = None;
++    }
++
+     fn resolve(&self, source: &str) -> Result<PathBuf, ImageError> {
+         let root = match (self.root_invalid, self.root.as_deref()) {
+             (true, _) => Root::Unusable,
+             (false, Some(root)) => Root::At(root),
+             (false, None) => Root::None,
+         };
+-        Ok(markraft_media::resolve(source, self.base.as_deref(), root)?)
++        let path = markraft_media::resolve(source, self.base.as_deref(), root)?;
++        if self.confined && !self.inside_allowed(&path) {
++            return Err(ImageError::InvalidPath);
++        }
++        Ok(path)
++    }
++
++    /// Resolution already removed `.` and `..` segments, so a prefix test is
++    /// lexical containment; an existing file is also checked after following links.
++    fn inside_allowed(&self, path: &Path) -> bool {
++        let allowed = [self.base.as_deref(), self.root.as_deref()];
++        let mut allowed = allowed.into_iter().flatten();
++        if !allowed.clone().any(|directory| path.starts_with(directory)) {
++            return false;
++        }
++        match path.canonicalize() {
++            Ok(real) => allowed.any(|directory| {
++                directory
++                    .canonicalize()
++                    .is_ok_and(|directory| real.starts_with(directory))
++            }),
++            // A missing file loads nothing; it reads as missing, not as escaped.
++            Err(_) => true,
++        }
+     }
+ 
+     pub(crate) fn load(&self, source: &str) -> ImageResult {
+@@ -484,6 +517,54 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn confinement_keeps_local_images_inside_the_base_and_root() {
++        let mut images = Images::new(Some(PathBuf::from("/notes/posts")));
++        images.set_root(Ok(Some(PathBuf::from("/notes/posts"))));
++        images.set_confined(true);
++        assert_eq!(
++            images.resolve("img/test.png").unwrap(),
++            PathBuf::from("/notes/posts/img/test.png")
++        );
++        assert_eq!(
++            images.resolve("/img/test.png").unwrap(),
++            PathBuf::from("/notes/posts/img/test.png")
++        );
++        for escaping in [
++            "../test.png",
++            "img/../../other/test.png",
++            "file:///etc/test.png",
++            "file:///notes/test.png",
++        ] {
++            assert_eq!(
++                images.resolve(escaping),
++                Err(ImageError::InvalidPath),
++                "{escaping}"
++            );
++        }
++        images.set_confined(false);
++        assert_eq!(
++            images.resolve("../test.png").unwrap(),
++            PathBuf::from("/notes/test.png")
++        );
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn confinement_does_not_follow_links_out_of_the_base() {
++        let root = std::env::temp_dir().join(format!("markraft-confine-{}", std::process::id()));
++        let base = root.join("note");
++        std::fs::create_dir_all(&base).unwrap();
++        std::fs::write(root.join("outside.png"), b"x").unwrap();
++        std::fs::write(base.join("inside.png"), b"x").unwrap();
++        std::os::unix::fs::symlink(root.join("outside.png"), base.join("link.png")).unwrap();
++        let mut images = Images::new(Some(base.clone()));
++        images.set_confined(true);
++        assert!(images.resolve("inside.png").is_ok());
++        assert_eq!(images.resolve("link.png"), Err(ImageError::InvalidPath));
++        std::fs::remove_dir_all(root).unwrap();
++    }
++
+     #[test]
+     fn unsupported_roots_do_not_fall_back_to_a_wrong_absolute_image() {
+         let mut images = Images::new(Some(PathBuf::from("/notes")));
+diff --git a/crates/markraft-gpui/src/lib.rs b/crates/markraft-gpui/src/lib.rs
+index 017b683..7d06945 100644
+--- a/crates/markraft-gpui/src/lib.rs
++++ b/crates/markraft-gpui/src/lib.rs
+@@ -836,6 +836,14 @@ impl EditorView {
+         self
+     }
+ 
++    /// Load local images only from inside the image base or root directory.
++    /// `file:` URLs, `..` segments and symbolic links leading elsewhere are shown
++    /// as invalid paths instead of being read.
++    pub fn with_image_confinement(mut self, confined: bool) -> Self {
++        self.shaping.set_image_confined(confined);
++        self
++    }
++
+     /// Update an image preview root without changing document content or history.
+     pub fn set_image_root(
+         &mut self,
+diff --git a/crates/markraft-gpui/src/shaping.rs b/crates/markraft-gpui/src/shaping.rs
+index 9139fc3..1160120 100644
+--- a/crates/markraft-gpui/src/shaping.rs
++++ b/crates/markraft-gpui/src/shaping.rs
+@@ -115,6 +115,11 @@ impl Shaping {
+         self.changed();
+     }
+ 
++    pub(crate) fn set_image_confined(&mut self, confined: bool) {
++        self.images.set_confined(confined);
++        self.changed();
++    }
++
+     /// Drop the decoded copy of every image file that changed on disk, and say
+     /// whether any had. The host polls this several times a second, so a poll
+     /// that finds nothing must leave the lines alone.

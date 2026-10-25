@@ -1,0 +1,40 @@
+{
+  "generator": "cargo-about 0.9.2",
+  "target": "aarch64-apple-darwin",
+  "cargo_lock_sha256": "ebbfd853556baacc4c94779c64464d8d06cc78da19df159af1b3f69b32467941",
+  "notices_sha256": "98db826817fccf36def88b481bf81ec6550e69d0ccc915b951f3d138cbac42a1",
+  "upstream_sha256": "873313911350bd9f33164c3e807802dab9ea6e18e6e994ee4ae5c59420a9767f",
+  "unresolved_attribution": [],
+  "source_archives": [
+    {
+      "path": "third-party-sources/block-0.1.6.crate",
+      "sha256": "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a",
+      "url": "https://crates.io/api/v1/crates/block/0.1.6/download"
+    },
+    {
+      "path": "third-party-sources/fxhash-0.2.1.crate",
+      "sha256": "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c",
+      "url": "https://crates.io/api/v1/crates/fxhash/0.2.1/download"
+    },
+    {
+      "path": "third-party-sources/leak-0.1.2.crate",
+      "sha256": "bd100e01f1154f2908dfa7d02219aeab25d0b9c7fa955164192e3245255a0c73",
+      "url": "https://crates.io/api/v1/crates/leak/0.1.2/download"
+    },
+    {
+      "path": "third-party-sources/leaky-cow-0.1.1.crate",
+      "sha256": "40a8225d44241fd324a8af2806ba635fc7c8a7e9a7de4d5cf3ef54e71f5926fc",
+      "url": "https://crates.io/api/v1/crates/leaky-cow/0.1.1/download"
+    },
+    {
+      "path": "third-party-sources/mac-0.1.1.crate",
+      "sha256": "c41e0c4fef86961ac6d6f8a82609f55f31b05e4fce149ac5710e439df7619ba4",
+      "url": "https://crates.io/api/v1/crates/mac/0.1.1/download"
+    },
+    {
+      "path": "third-party-sources/seahash-4.1.0.crate",
+      "sha256": "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b",
+      "url": "https://crates.io/api/v1/crates/seahash/4.1.0/download"
+    }
+  ]
+}

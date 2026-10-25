@@ -1,0 +1,136 @@
+diff --git a/crates/markraft-gpui/src/style.rs b/crates/markraft-gpui/src/style.rs
+index 82b261c..3022307 100644
+--- a/crates/markraft-gpui/src/style.rs
++++ b/crates/markraft-gpui/src/style.rs
+@@ -19,6 +19,8 @@ pub struct EditorStyle {
+     /// monospaced face, and the editor's chrome — pills, labels — the system
+     /// one.
+     pub font_family: SharedString,
++    /// Host-selected monospaced face for code and source.
++    pub code_font_family: SharedString,
+     pub body_size: Pixels,
+     pub heading_sizes: [Pixels; 6],
+     pub line_height_ratio: f32,
+@@ -96,6 +98,7 @@ impl Default for EditorStyle {
+             padding: px(32.),
+             max_line_width: None,
+             font_family: DEFAULT_FONT_FAMILY.into(),
++            code_font_family: ".AppleSystemUIFontMonospaced".into(),
+             body_size: px(17.),
+             heading_sizes: [px(30.), px(25.), px(21.), px(19.), px(18.), px(17.)],
+             line_height_ratio: 1.5,
+@@ -149,6 +152,7 @@ impl EditorStyle {
+             padding: px(24.),
+             max_line_width: None,
+             font_family: DEFAULT_FONT_FAMILY.into(),
++            code_font_family: ".AppleSystemUIFontMonospaced".into(),
+             body_size: px(14.),
+             // Ratios of 2.25, 1.75, 1.5, 1.25, 1 and 1 em held down at the top,
+             // so a floating note's title does not crowd its own window. Rather
+diff --git a/crates/markraft-gpui/src/surface/atoms.rs b/crates/markraft-gpui/src/surface/atoms.rs
+index 6b0f746..e801121 100644
+--- a/crates/markraft-gpui/src/surface/atoms.rs
++++ b/crates/markraft-gpui/src/surface/atoms.rs
+@@ -888,7 +888,7 @@ pub(super) fn atom_of(
+     // link colour, which is what says it can be followed.
+     let (face, size) = match shape {
+         AtomShape::Pill => (font(UI_FONT), font_size * PILL_SCALE),
+-        AtomShape::Source => (font(CODE_FONT), font_size),
++        AtomShape::Source => (font(style.code_font_family.clone()), font_size),
+         // A wiki link's label and source shown as text are the row's own text,
+         // so they are measured in the face the row sets them in.
+         AtomShape::Link | AtomShape::Text | AtomShape::Break => {
+diff --git a/crates/markraft-gpui/src/surface/mod.rs b/crates/markraft-gpui/src/surface/mod.rs
+index 810cda7..20f7342 100644
+--- a/crates/markraft-gpui/src/surface/mod.rs
++++ b/crates/markraft-gpui/src/surface/mod.rs
+@@ -95,6 +95,7 @@ const LOADING_FRAME_MAX_HEIGHT: Pixels = px(320.);
+ /// known until it arrives, so the frame only has to read as a picture's place.
+ const LOADING_FRAME_MAX_WIDTH: Pixels = px(480.);
+ // SF Mono; Menlo is wider and heavier at this size.
++#[cfg(test)]
+ const CODE_FONT: &str = ".AppleSystemUIFontMonospaced";
+ /// The face of the editor's own chrome — a pill's label, an emoji atom —,
+ /// which stays the system's whatever [`EditorStyle::font_family`] the note's
+diff --git a/crates/markraft-gpui/src/surface/runs.rs b/crates/markraft-gpui/src/surface/runs.rs
+index 6fe0985..bc656d5 100644
+--- a/crates/markraft-gpui/src/surface/runs.rs
++++ b/crates/markraft-gpui/src/surface/runs.rs
+@@ -43,7 +43,7 @@ pub(super) fn text_runs(
+             face.weight = FontWeight::BOLD;
+         }
+         if raw {
+-            face = font(CODE_FONT);
++            face = font(style.code_font_family.clone());
+         }
+         return Runs {
+             runs: vec![TextRun {
+@@ -75,7 +75,7 @@ pub(super) fn text_runs(
+         let footnote = has(types.footnote_reference, marks);
+         let is_link = has(types.link, marks) || footnote;
+         let mut face = if is_code {
+-            font(CODE_FONT)
++            font(style.code_font_family.clone())
+         } else {
+             font(style.font_family.clone())
+         };
+@@ -104,7 +104,7 @@ pub(super) fn text_runs(
+         let placeholder = widening.and_then(|widening| widening.shape);
+         let source_atom = placeholder == Some(AtomShape::Source);
+         if source_atom {
+-            face = font(CODE_FONT);
++            face = font(style.code_font_family.clone());
+         }
+         let widened = placeholder == Some(AtomShape::Pill);
+         if widened && is_math {
+@@ -188,7 +188,7 @@ pub(super) fn text_runs(
+             .sum::<usize>()
+             + highlighted.len().saturating_sub(1);
+         if total == text.text.len() {
+-            runs = highlight_runs(&highlighted, style.background.l < 0.5);
++            runs = highlight_runs(&highlighted, style.background.l < 0.5, style);
+         }
+     }
+     // A raw block the kind reads more in — a run of link definitions — is drawn
+@@ -287,13 +287,17 @@ pub(super) fn source_highlight_runs(
+     runs.into_iter().map(|(len, part)| run(len, part)).collect()
+ }
+ 
+-pub(super) fn highlight_runs(highlighted: &markraft_syntax::Lines, dark: bool) -> Vec<TextRun> {
++pub(super) fn highlight_runs(
++    highlighted: &markraft_syntax::Lines,
++    dark: bool,
++    style: &EditorStyle,
++) -> Vec<TextRun> {
+     let mut runs = Vec::new();
+     for (index, row) in highlighted.iter().enumerate() {
+         if index > 0 {
+             runs.push(TextRun {
+                 len: 1,
+-                font: font(CODE_FONT),
++                font: font(style.code_font_family.clone()),
+                 color: gpui::transparent_black(),
+                 background_color: None,
+                 underline: None,
+@@ -301,7 +305,7 @@ pub(super) fn highlight_runs(highlighted: &markraft_syntax::Lines, dark: bool) -
+             });
+         }
+         for span in row {
+-            let mut face = font(CODE_FONT);
++            let mut face = font(style.code_font_family.clone());
+             if span.tone.italic() {
+                 face.style = FontStyle::Italic;
+             }
+diff --git a/crates/markraft-gpui/src/surface/shape.rs b/crates/markraft-gpui/src/surface/shape.rs
+index 2ef4587..dcfff17 100644
+--- a/crates/markraft-gpui/src/surface/shape.rs
++++ b/crates/markraft-gpui/src/surface/shape.rs
+@@ -355,7 +355,7 @@ pub(super) fn shape_line(
+             .unwrap_or_else(|| input.messages.text(crate::EditorMessage::PlainText));
+         shape_source_label(
+             &language,
+-            font(CODE_FONT),
++            font(style.code_font_family.clone()),
+             font_size - px(1.),
+             style.muted_text,
+             text_system,

@@ -1,0 +1,91 @@
+--- a/patches/gpui-pre-macos-0.3.6.patch
++++ b/patches/gpui-pre-macos-0.3.6.patch
+@@ -1,3 +1,88 @@
++--- a/src/gpui_macos.rs
+++++ b/src/gpui_macos.rs
++@@ -55,7 +55,7 @@
++ #[cfg(feature = "font-kit")]
++ pub(crate) use text_system::*;
++ 
++-pub use platform::MacPlatform;
+++pub use platform::{MacPlatform, TerminationReply, reply_to_termination, set_termination_guard};
++ 
++ trait BoolExt {
++     fn to_objc(self) -> BOOL;
++--- a/src/platform.rs
+++++ b/src/platform.rs
++@@ -54,7 +54,7 @@
++ use ptr::null_mut;
++ use semver::Version;
++ use std::{
++-    cell::Cell,
+++    cell::{Cell, RefCell},
++     ffi::{CStr, OsStr, c_void},
++     os::{raw::c_char, unix::ffi::OsStrExt},
++     path::{Path, PathBuf},
++@@ -70,6 +70,51 @@
++ #[allow(non_upper_case_globals)]
++ const NSUTF8StringEncoding: NSUInteger = 4;
++ 
+++thread_local! {
+++    static TERMINATION_GUARD: RefCell<Option<Box<dyn FnMut() -> TerminationReply>>> = RefCell::new(None);
+++}
+++
+++/// How the host answers AppKit's `applicationShouldTerminate:`.
+++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+++pub enum TerminationReply {
+++    /// Refuse. During logout, restart or shutdown this aborts the whole operation.
+++    Cancel,
+++    /// Terminate now.
+++    Now,
+++    /// Not yet: the host must call `reply_to_termination` once it knows.
+++    Later,
+++}
+++
+++/// Decide how ordinary AppKit termination proceeds, on the main thread. Answer `Later`
+++/// while saving, then call `reply_to_termination` when the save is acknowledged.
+++pub fn set_termination_guard(
+++    _main_thread: MainThreadMarker,
+++    guard: impl FnMut() -> TerminationReply + 'static,
+++) {
+++    TERMINATION_GUARD.with(|slot| *slot.borrow_mut() = Some(Box::new(guard)));
+++}
+++
+++/// Settle a termination that was answered `Later`: true quits, false abandons it.
+++/// Call it outside any borrow of the app, because quitting runs the quit callbacks.
+++pub fn reply_to_termination(_main_thread: MainThreadMarker, terminate: bool) {
+++    unsafe {
+++        let app = NSApplication::sharedApplication(nil);
+++        let _: () = msg_send![app, replyToApplicationShouldTerminate: terminate.to_objc()];
+++    }
+++}
+++
+++extern "C" fn should_terminate(_: &mut Object, _: Sel, _: id) -> NSUInteger {
+++    TERMINATION_GUARD.with(|slot| {
+++        // A nested request must not bypass a save already being decided.
+++        let Ok(mut guard) = slot.try_borrow_mut() else { return 0 };
+++        match guard.as_mut().map_or(TerminationReply::Now, |guard| guard()) {
+++            TerminationReply::Cancel => 0,
+++            TerminationReply::Now => 1,
+++            TerminationReply::Later => 2,
+++        }
+++    })
+++}
+++
++ const MAC_PLATFORM_IVAR: &str = "platform";
++ static mut APP_CLASS: *const Class = ptr::null();
++ static mut APP_DELEGATE_CLASS: *const Class = ptr::null();
++@@ -98,6 +143,10 @@
++             decl.add_method(
++                 sel!(applicationShouldHandleReopen:hasVisibleWindows:),
++                 should_handle_reopen as extern "C" fn(&mut Object, Sel, id, bool),
+++            );
+++            decl.add_method(
+++                sel!(applicationShouldTerminate:),
+++                should_terminate as extern "C" fn(&mut Object, Sel, id) -> NSUInteger,
++             );
++             decl.add_method(
++                 sel!(applicationWillTerminate:),
+ --- a/src/window.rs
+ +++ b/src/window.rs
+ @@ -74,22 +74,19 @@

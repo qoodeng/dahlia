@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.ibtool.errors</key>
+	<array>
+		<dict>
+			<key>description</key>
+			<string>Interface Builder cannot open compiled nibs.</string>
+			<key>recovery-suggestion</key>
+			<string>Try opening the source document instead of the compiled nib.</string>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -1,0 +1,51 @@
+--- a/patches/gpui-pre-macos-0.3.6.patch
++++ b/patches/gpui-pre-macos-0.3.6.patch
+@@ -219,7 +219,20 @@
+              let mut error: id = nil;
+              let unarchiver: id =
+                  msg_send![unarchiver, initForReadingFromData: data error: &mut error];
+-@@ -2183,15 +2124,9 @@
++@@ -1835,7 +1776,11 @@
++             let app = NSApplication::sharedApplication(nil);
++             let window = self.0.lock().native_window;
++             let title = ns_string(title);
++-            let _: () = msg_send![app, changeWindowsItem:window title:title filename:false];
+++            // Hosts with their own note list exclude these windows from AppKit's list.
+++            let excluded: BOOL = msg_send![window, isExcludedFromWindowsMenu];
+++            if excluded == NO {
+++                let _: () = msg_send![app, changeWindowsItem:window title:title filename:false];
+++            }
++             let _: () = msg_send![window, setTitle: title];
++             self.0.lock().move_traffic_light();
++         }
++@@ -2183,15 +2128,9 @@
+                              }
+                              "Fill" => {
+                                  if is_resizable {
+@@ -238,7 +251,7 @@
+                                  }
+                              }
+                              _ => {
+-@@ -2533,13 +2468,22 @@
++@@ -2533,13 +2472,22 @@
+              CursorStyle::ResizeUp => msg_send![class!(NSCursor), resizeUpCursor],
+              CursorStyle::ResizeDown => msg_send![class!(NSCursor), resizeDownCursor],
+  
+@@ -268,7 +281,7 @@
+              }
+  
+              CursorStyle::IBeamCursorForVerticalLayout => {
+-@@ -3503,22 +3447,15 @@
++@@ -3503,22 +3451,15 @@
+      YES
+  }
+  
+@@ -296,7 +309,7 @@
+      }
+  }
+  
+-@@ -3743,67 +3680,6 @@
++@@ -3743,67 +3684,6 @@
+      }
+  }
+  

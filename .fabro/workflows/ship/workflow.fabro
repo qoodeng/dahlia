@@ -1,0 +1,80 @@
+// One issue to one reviewed, test-passing change, run on this Mac.
+// Plan, implement, fix and review use different model families; fix loops are capped.
+// Plan, implement and fix run vendors' own CLIs over ACP on their subscriptions (acp-agent.sh
+// names the agent and model); review and anything else use Command Code models.
+digraph Ship {
+    graph [
+        goal="Implement the goal file passed with --goal-file",
+        rankdir=LR,
+        max_node_visits=4,
+        model_stylesheet="
+            *          { model: deepseek-v4.1-flash; provider: commandcode; }
+            #plan      { backend: acp; }
+            #implement { backend: acp; }
+            #fix       { backend: acp; }
+            #review    { model: glm-5.3; provider: commandcode; }
+        "
+    ]
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // Markraft is a patched submodule; a fresh clone of HEAD does not have it.
+    prepare [label="Prepare", timeout="15m", on_failure="exit", max_retries=1,
+             script="sh .fabro/workflows/ship/disk-guard.sh && sh scripts/prepare.sh && sh scripts/check-patch-drift.sh"]
+
+    // Claude Opus 5.5 on the Claude Max plan.
+    // A failed plan or implement fails the run instead of quietly handing off to the next step.
+    plan [label="Plan", timeout="20m", goal_gate=true, acp.command="sh .fabro/workflows/ship/acp-agent.sh claude claude-opus-5-5", prompt="
+Goal:
+{{ goal }}
+
+Read README.md, the files the goal names, and their tests. Do not edit source files.
+Write a short numbered plan to .factory/plan.md: the files to change, the tests to add,
+and how the change keeps current behaviour. Keep scope to exactly what the goal asks."]
+
+    // Composer 2.5 (standard, not fast) on the Cursor plan.
+    implement [label="Implement", timeout="30m", goal_gate=true, acp.command="sh .fabro/workflows/ship/acp-agent.sh cursor composer-2.5", prompt="
+Goal:
+{{ goal }}
+
+Carry out .factory/plan.md. Match the surrounding code's naming, comment density and idiom.
+Add the tests the plan names. Before you finish, run `bash .fabro/workflows/ship/verify.sh`
+and make it pass; it runs the same checks as the Verify stage.
+If your shell tool takes a timeout (for example timeout_ms), give every cargo or verify.sh
+command 15 minutes; the default can be as short as 10 seconds. Compiler errors come last,
+so read the end of the output. Never edit .fabro/, vendor/, patches/ or .github/."]
+
+    verify [label="Verify", shape=parallelogram, timeout="40m",
+            script="bash .fabro/workflows/ship/verify.sh"]
+
+    // GPT-6.1 Sol through Codex on the ChatGPT plan.
+    fix [label="Fix", timeout="30m", max_visits=3, acp.command="sh .fabro/workflows/ship/acp-agent.sh codex gpt-6.1-sol", prompt="
+The checks or the review failed. Run `bash .fabro/workflows/ship/verify.sh`, with a 15-minute
+timeout if your shell tool takes one: it names the failing command after FAILED: and prints the end of its output,
+where the real errors are. Also read .factory/review.md if it exists. Fix the cause in the source,
+then run verify.sh again until it passes.
+Do not weaken, skip or delete tests to make them pass. Never edit .fabro/, vendor/, patches/ or .github/."]
+
+    // Thorough reviews of test-heavy changes have taken about 20 minutes.
+    review [label="Review", timeout="40m", max_visits=2, prompt="
+Goal:
+{{ goal }}
+
+Review the change on this branch against the goal: run `git diff HEAD~..HEAD` or compare with the
+starting commit, read the changed files and tests. Check correctness, scope creep, tests that
+actually exercise the change, and that behaviour users see is unchanged unless the goal says otherwise.
+Write findings to .factory/review.md.
+Also write .factory/visual containing exactly `yes` if the change alters anything a user can see
+on screen (layout, colour, text, icons, window chrome) or any animation or motion, otherwise
+exactly `no`. When unsure, write `yes`: a visual change waits for the owner before it merges.
+End your reply with a JSON object: {\"context_updates\": {\"review_ok\": true}} if it is ready to merge,
+or {\"context_updates\": {\"review_ok\": false}} if anything must change."]
+
+    start -> prepare -> plan -> implement -> verify
+    verify -> review [label="Pass", condition="outcome=succeeded"]
+    verify -> fix    [label="Fail"]
+    fix -> verify
+    review -> exit [label="Ready", condition="context.review_ok=true"]
+    review -> fix  [label="Changes"]
+}

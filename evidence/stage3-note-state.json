@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "notes": [
+    {
+      "id": "primary",
+      "title": "Markdown, on your desktop",
+      "open": true,
+      "frame": {
+        "x": 120.0,
+        "y": 120.0,
+        "width": 360.0,
+        "height": 350.0
+      },
+      "expanded_height": 350.0,
+      "collapsed": false,
+      "floating": false,
+      "style": {
+        "appearance": "glass",
+        "color": 1,
+        "translucent": false,
+        "reading_size": 12.0
+      }
+    },
+    {
+      "id": "7a11700e-27f7-4acd-b49e-fbd3c4209e1e",
+      "title": "Second note — independent history.",
+      "open": false,
+      "frame": {
+        "x": 0.0,
+        "y": 148.0,
+        "width": 1470.0,
+        "height": 350.0
+      },
+      "expanded_height": 350.0,
+      "collapsed": false,
+      "floating": true,
+      "style": {
+        "appearance": "classic",
+        "color": 0,
+        "translucent": false,
+        "reading_size": 12.0
+      }
+    },
+    {
+      "id": "a4192e14-c86a-4130-9272-f63205643aea",
+      "title": "Native typography",
+      "open": true,
+      "frame": {
+        "x": 148.0,
+        "y": 148.0,
+        "width": 360.0,
+        "height": 350.0
+      },
+      "expanded_height": 350.0,
+      "collapsed": false,
+      "floating": false,
+      "style": {
+        "appearance": "glass",
+        "color": 0,
+        "translucent": false,
+        "reading_size": 12.0
+      }
+    }
+  ],
+  "defaults": {
+    "style": {
+      "appearance": "glass",
+      "color": 0,
+      "translucent": false,
+      "reading_size": 12.0
+    },
+    "width": 360.0,
+    "height": 350.0,
+    "floating": false
+  },
+  "glass_tint": 0.25
+}

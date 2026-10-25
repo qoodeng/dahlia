@@ -1,0 +1,667 @@
+--- a/crates/markraft-gpui/src/style.rs
++++ b/crates/markraft-gpui/src/style.rs
+@@ -37,6 +37,37 @@ pub struct EditorStyle {
+     pub list_indent: Pixels,
+     /// Optional host-sized task box; None retains the preset's 14px marker.
+     pub task_marker_size: Option<Pixels>,
++    /// Host geometry that scales with the reading size. Each defaults to the
++    /// fixed value it replaces, so a preset that leaves them alone is
++    /// unchanged.
++    ///
++    /// Leading for headings and for code blocks; `None` uses
++    /// [`EditorStyle::line_height_ratio`].
++    pub heading_line_height_ratio: Option<f32>,
++    pub code_line_height_ratio: Option<f32>,
++    /// Code block text size; `None` keeps it two pixels under the body.
++    pub code_size: Option<Pixels>,
++    /// A code panel's padding beside its text and above and below it, and the
++    /// panel's corner radius.
++    pub code_padding: Pixels,
++    pub code_inset: Pixels,
++    pub code_block_radius: Pixels,
++    /// The room inline code keeps on either side inside its pill.
++    pub inline_code_padding: Pixels,
++    /// A table cell's padding, across and down.
++    pub cell_padding_x: Pixels,
++    pub cell_padding_y: Pixels,
++    /// Quote bars: their colour (`None` draws them in [`EditorStyle::marker`])
++    /// and width.
++    pub quote_bar: Option<Hsla>,
++    pub quote_bar_width: Pixels,
++    /// A horizontal rule's thickness.
++    pub rule_thickness: Pixels,
++    /// The thickness of underlines and strikethroughs.
++    pub decoration_thickness: Pixels,
++    /// Code colours in `markraft_syntax::Tone` order — text, keyword, name,
++    /// string, comment. `None` uses the syntax crate's light or dark palette.
++    pub syntax_tones: Option<[Hsla; 5]>,
+     pub background: Hsla,
+     pub text: Hsla,
+     pub muted_text: Hsla,
+@@ -111,6 +142,20 @@ impl Default for EditorStyle {
+             heading_bottom_gap: px(10.),
+             list_indent: px(28.),
+             task_marker_size: None,
++            heading_line_height_ratio: None,
++            code_line_height_ratio: None,
++            code_size: None,
++            code_padding: crate::surface::CODE_PADDING,
++            code_inset: crate::surface::CODE_INSET,
++            code_block_radius: crate::surface::CODE_RADIUS,
++            inline_code_padding: crate::surface::INLINE_CODE_PADDING,
++            cell_padding_x: crate::surface::CELL_PADDING_X,
++            cell_padding_y: crate::surface::CELL_PADDING_Y,
++            quote_bar: None,
++            quote_bar_width: crate::surface::QUOTE_BAR,
++            rule_thickness: px(1.5),
++            decoration_thickness: px(1.),
++            syntax_tones: None,
+             background: rgb(0xfcfbf8).into(),
+             text: rgb(0x24282e).into(),
+             muted_text: rgb(0x6a6c64).into(),
+@@ -175,6 +220,20 @@ impl EditorStyle {
+             heading_bottom_gap: px(8.),
+             list_indent: px(22.),
+             task_marker_size: None,
++            heading_line_height_ratio: None,
++            code_line_height_ratio: None,
++            code_size: None,
++            code_padding: crate::surface::CODE_PADDING,
++            code_inset: crate::surface::CODE_INSET,
++            code_block_radius: crate::surface::CODE_RADIUS,
++            inline_code_padding: crate::surface::INLINE_CODE_PADDING,
++            cell_padding_x: crate::surface::CELL_PADDING_X,
++            cell_padding_y: crate::surface::CELL_PADDING_Y,
++            quote_bar: None,
++            quote_bar_width: crate::surface::QUOTE_BAR,
++            rule_thickness: px(1.5),
++            decoration_thickness: px(1.),
++            syntax_tones: None,
+             background: rgb(0xefefef).into(),
+             text: rgb(0x1c1d21).into(),
+             muted_text: rgb(0x686b71).into(),
+@@ -252,11 +311,21 @@ impl EditorStyle {
+     pub(crate) fn font_size(&self, heading: Option<u8>, code: bool) -> Pixels {
+         match (heading, code) {
+             (Some(level), _) => self.heading_sizes[usize::from(level).clamp(1, 6) - 1],
+-            (None, true) => self.body_size - px(2.),
++            (None, true) => self.code_size.unwrap_or(self.body_size - px(2.)),
+             (None, false) => self.body_size,
+         }
+     }
+ 
++    /// The height of one visual row of a line drawn at `font_size`.
++    pub(crate) fn line_height(&self, font_size: Pixels, heading: Option<u8>, code: bool) -> Pixels {
++        let ratio = match (heading, code) {
++            (Some(_), _) => self.heading_line_height_ratio,
++            (None, true) => self.code_line_height_ratio,
++            (None, false) => None,
++        };
++        font_size * ratio.unwrap_or(self.line_height_ratio)
++    }
++
+     /// The space above a heading of `level`, except at the top of the document.
+     pub(crate) fn heading_top_gap(&self, level: u8) -> Pixels {
+         self.heading_top_gaps[usize::from(level).clamp(1, 6) - 1]
+--- a/crates/markraft-gpui/src/surface/chrome.rs
++++ b/crates/markraft-gpui/src/surface/chrome.rs
+@@ -65,7 +65,7 @@ pub(super) fn ancestor_indent(
+             .task_marker_size
+             .map_or(px(22.), |side| px(22.).max(side + marker_gap(Some(side))))
+     } else if Some(ty) == types.code_block {
+-        CODE_PADDING
++        style.code_padding
+     } else if Some(ty) == types.footnote_definition {
+         style.list_indent
+     } else {
+@@ -384,7 +384,7 @@ pub(super) fn block_gap(
+     marker: &Option<Marker>,
+ ) -> Pixels {
+     let style = input.style;
+-    // The code fill reaches CODE_INSET past the text (`shape_line` adds it on
++    // The code fill reaches `code_inset` past the text (`shape_line` adds it on
+     // top of this gap), so a code block keeps its own bottom padding whatever
+     // block follows it.
+     if code {
+--- a/crates/markraft-gpui/src/surface/layout_line.rs
++++ b/crates/markraft-gpui/src/surface/layout_line.rs
+@@ -349,6 +349,8 @@ pub(crate) struct LayoutLine {
+     /// How far a code block's panel reaches above and below its text; zero on
+     /// any other line.
+     pub(super) code_inset: Pixels,
++    /// How far a code block's panel reaches beside its text.
++    pub(super) code_padding: Pixels,
+     /// How far the text of an item's first line is indented by the blocks
+     /// inside the item it opens — a quote, a code panel — so the item's marker
+     /// stands left of them rather than on them.
+@@ -740,7 +742,7 @@ impl LayoutLine {
+     pub(super) fn callout_header_origin(&self) -> Point<Pixels> {
+         if self.code_inset > Pixels::ZERO {
+             point(
+-                self.origin.x - CODE_PADDING,
++                self.origin.x - self.code_padding,
+                 self.origin.y - self.code_panel_room() - CALLOUT_HEADER_HEIGHT,
+             )
+         } else {
+@@ -776,7 +778,7 @@ impl LayoutLine {
+     pub(crate) fn code_language_bounds(&self) -> Option<Bounds<Pixels>> {
+         self.code_pos?;
+         let width = self.code_language.as_ref()?.width + CODE_LANGUAGE_PADDING * 2.;
+-        let right = self.origin.x + self.width + CODE_PADDING;
++        let right = self.origin.x + self.width + self.code_padding;
+         let top = self.origin.y - self.code_inset;
+         Some(Bounds::new(
+             point(right - width, top),
+--- a/crates/markraft-gpui/src/surface/lines.rs
++++ b/crates/markraft-gpui/src/surface/lines.rs
+@@ -721,7 +721,7 @@ pub(super) fn estimate_height(
+     let heading = types.heading_level(line);
+     let code = types.is_code_block(line);
+     let font_size = style.font_size(heading, code);
+-    let line_height = font_size * style.line_height_ratio;
++    let line_height = style.line_height(font_size, heading, code);
+     let text = projection.line_text(index).unwrap_or_default();
+ 
+     if let Some((table, row, _)) = types.table_cell_of(line) {
+@@ -740,11 +740,14 @@ pub(super) fn estimate_height(
+         } else {
+             px(0.)
+         };
+-        return (line_height * rows + CELL_PADDING_Y * 2. + gap, picture);
++        return (
++            line_height * rows + style.cell_padding_y * 2. + gap,
++            picture,
++        );
+     }
+ 
+     let indent = indent_of(types, line, style, None).min(max_indent(style, width));
+-    let wrap = (width - indent - if code { CODE_PADDING } else { px(0.) }).max(px(40.));
++    let wrap = (width - indent - if code { style.code_padding } else { px(0.) }).max(px(40.));
+     let advance = |c: char| -> f32 {
+         if is_wide(c) {
+             1.
+@@ -776,7 +779,7 @@ pub(super) fn estimate_height(
+     }
+     let marker = chrome_marker(types, line, None);
+     let gap = gap_below(input, index, line, heading, code, &marker);
+-    let code_inset = if code { CODE_INSET } else { px(0.) };
++    let code_inset = if code { style.code_inset } else { px(0.) };
+     let top_gap = if code {
+         code_inset
+     } else if index == 0 {
+--- a/crates/markraft-gpui/src/surface/mod.rs
++++ b/crates/markraft-gpui/src/surface/mod.rs
+@@ -78,7 +78,7 @@ const INLINE_CODE_SCALE: f32 = 0.86;
+ const SUPERSCRIPT_SCALE: f32 = 0.72;
+ const SUPERSCRIPT_LIFT: f32 = 0.3;
+ const SUBSCRIPT_DROP: f32 = 0.18;
+-const INLINE_CODE_PADDING: Pixels = px(5.);
++pub(crate) const INLINE_CODE_PADDING: Pixels = px(5.);
+ const NUMBER_GAP: Pixels = px(6.);
+ 
+ /// Labels for inline atoms use a compact pill in the visual row's text band.
+@@ -103,18 +103,18 @@ const CODE_FONT: &str = ".AppleSystemUIFontMonospaced";
+ const UI_FONT: &str = ".SystemUIFont";
+ /// The rounded system design, which has no italic of its own.
+ const ROUNDED_FONT: &str = ".AppleSystemUIFontRounded";
+-const CODE_PADDING: Pixels = px(12.);
++pub(crate) const CODE_PADDING: Pixels = px(12.);
+ /// How far a code block's panel reaches above and below its text. It spells no
+ /// fences, focused or not, so this is padding and nothing else,
+ /// and the caret coming or going never changes the block's height.
+-const CODE_INSET: Pixels = px(12.);
++pub(crate) const CODE_INSET: Pixels = px(12.);
+ /// The language tag a focused code block shows in its panel's top-right
+ /// corner, flush with the panel's top and right edges: its height and its
+ /// horizontal padding. It is drawn over the block's own text, so it takes no
+ /// room from the layout and never reaches past the panel.
+ const CODE_LANGUAGE_HEIGHT: Pixels = px(18.);
+ const CODE_LANGUAGE_PADDING: Pixels = px(6.);
+-const CODE_RADIUS: Pixels = px(12.);
++pub(crate) const CODE_RADIUS: Pixels = px(12.);
+ /// The space between a picture's spelled-out source and the picture drawn
+ /// under it while the caret is in the source.
+ const PREVIEW_GAP: Pixels = px(6.);
+@@ -128,8 +128,8 @@ const INLINE_IMAGE_INSET: Pixels = px(2.);
+ /// min-content width, and the grid as a whole is content-sized rather than
+ /// stretched to the editor's width; a grid that still does not fit scrolls
+ /// sideways within the note.
+-const CELL_PADDING_X: Pixels = px(8.);
+-const CELL_PADDING_Y: Pixels = px(6.);
++pub(crate) const CELL_PADDING_X: Pixels = px(8.);
++pub(crate) const CELL_PADDING_Y: Pixels = px(6.);
+ const CELL_MIN_WIDTH: Pixels = px(56.);
+ /// How much of one unbreakable unit a column reserves room for. Past this a
+ /// very long word — a bare URL, a path — is left to wrap at whatever
+@@ -143,7 +143,7 @@ const TABLE_FADE: Pixels = px(14.);
+ /// the grid keeps below itself, clear of the last row's text.
+ const TABLE_SCROLLBAR_ROOM: Pixels = px(10.);
+ /// A quote bar, drawn beside a line and beside a whole grid alike.
+-const QUOTE_BAR: Pixels = px(2.);
++pub(crate) const QUOTE_BAR: Pixels = px(2.);
+ 
+ /// The byte index of the `n`th `char` of `text`, clamped to its length.
+ fn char_to_byte(text: &str, n: usize) -> usize {
+@@ -610,15 +610,19 @@ impl Element for EditorSurface {
+                             let (top, height) = (row.origin.y - lift, height + lift);
+                             let bar_x = row.quote_bar_x(levels, level, &style);
+                             window.paint_quad(fill(
+-                                Bounds::new(point(bar_x, top), size(QUOTE_BAR, height)),
+-                                tones.get(level).copied().flatten().unwrap_or(style.marker),
++                                Bounds::new(point(bar_x, top), size(style.quote_bar_width, height)),
++                                tones
++                                    .get(level)
++                                    .copied()
++                                    .flatten()
++                                    .unwrap_or(style.quote_bar.unwrap_or(style.marker)),
+                             ));
+                         }
+                     }
+                     Some(Decoration::Divider) => window.paint_quad(fill(
+                         Bounds::new(
+                             point(row.origin.x, row.origin.y + row.line_height * 0.5),
+-                            size(row.width, px(1.5)),
++                            size(row.width, style.rule_thickness),
+                         ),
+                         style.rule,
+                     )),
+@@ -641,26 +645,30 @@ impl Element for EditorSurface {
+                             window.paint_quad(fill(
+                                 Bounds::new(
+                                     point(bar_x, top),
+-                                    size(QUOTE_BAR, row.top_gap + below),
++                                    size(style.quote_bar_width, row.top_gap + below),
+                                 ),
+-                                tones.get(level).copied().flatten().unwrap_or(style.marker),
++                                tones
++                                    .get(level)
++                                    .copied()
++                                    .flatten()
++                                    .unwrap_or(style.quote_bar.unwrap_or(style.marker)),
+                             ));
+                         }
+                         window.paint_quad(
+                             fill(
+                                 Bounds::new(
+                                     point(
+-                                        row.origin.x - CODE_PADDING,
++                                        row.origin.x - style.code_padding,
+                                         row.origin.y - row.code_panel_room(),
+                                     ),
+                                     size(
+-                                        row.width + CODE_PADDING * 2.,
++                                        row.width + style.code_padding * 2.,
+                                         row.text_height() + row.code_panel_room() * 2.,
+                                     ),
+                                 ),
+                                 style.code_background,
+                             )
+-                            .corner_radii(Corners::all(CODE_RADIUS)),
++                            .corner_radii(Corners::all(style.code_block_radius)),
+                         );
+                     }
+                     None => {}
+@@ -913,10 +921,15 @@ impl Element for EditorSurface {
+                     // corner: rounded where the panel is, and on the one
+                     // corner that stands inside it.
+                     let mut tone = style.code_background;
+-                    tone.l = (tone.l - 0.04).max(0.);
++                    if tone.l < 0.04 {
++                        // A translucent black panel darkens by growing denser.
++                        tone.a = (tone.a + 0.04).min(1.);
++                    } else {
++                        tone.l -= 0.04;
++                    }
+                     window.paint_quad(fill(bounds, tone).corner_radii(Corners {
+                         top_left: px(0.),
+-                        top_right: CODE_RADIUS,
++                        top_right: style.code_block_radius,
+                         bottom_right: px(0.),
+                         bottom_left: px(6.),
+                     }));
+--- a/crates/markraft-gpui/src/surface/paint.rs
++++ b/crates/markraft-gpui/src/surface/paint.rs
+@@ -15,6 +15,7 @@ pub(super) fn quote_bars(
+     quotes: usize,
+     offset: Pixels,
+     indent: Pixels,
++    width: Pixels,
+ ) -> Vec<Bounds<Pixels>> {
+     (0..quotes)
+         .map(|level| {
+@@ -23,7 +24,7 @@ pub(super) fn quote_bars(
+                     grid.left() + offset - indent * (quotes - level) as f32,
+                     grid.top(),
+                 ),
+-                size(QUOTE_BAR, grid.size.height),
++                size(width, grid.size.height),
+             )
+         })
+         .collect()
+@@ -115,8 +116,14 @@ pub(super) fn paint_table(
+     let outer = boxes
+         .iter()
+         .fold(*first, |all, (_, bounds)| all.union(bounds));
+-    for bar in quote_bars(outer, first_cell.quotes, offset, style.quote_indent) {
+-        window.paint_quad(fill(bar, style.marker));
++    for bar in quote_bars(
++        outer,
++        first_cell.quotes,
++        offset,
++        style.quote_indent,
++        style.quote_bar_width,
++    ) {
++        window.paint_quad(fill(bar, style.quote_bar.unwrap_or(style.marker)));
+     }
+     if let Some(header) = boxes
+         .iter()
+@@ -404,7 +411,12 @@ pub(super) fn paint_marker(
+             );
+         }
+         Marker::Bullet { depth } => {
+-            let radius = if depth % 3 == 2 { px(0.) } else { px(2.5) };
++            // Round bullets stay round at any host size; the square marks depth 3.
++            let radius = if depth % 3 == 2 {
++                px(0.)
++            } else {
++                bounds.size.width / 2.
++            };
+             if depth % 3 == 1 {
+                 window.paint_quad(quad(
+                     bounds,
+--- a/crates/markraft-gpui/src/surface/runs.rs
++++ b/crates/markraft-gpui/src/surface/runs.rs
+@@ -34,7 +34,7 @@ pub(super) fn text_runs(
+     // A ticked item is greyed and struck through as a whole, but an atom and a
+     // link keep the colours that say what they are.
+     let done = checked_item.then_some(StrikethroughStyle {
+-        thickness: px(1.),
++        thickness: style.decoration_thickness,
+         color: Some(style.muted_text),
+     });
+     if text.synthetic {
+@@ -167,13 +167,13 @@ pub(super) fn text_runs(
+                 && !markup
+                 && (has(types.underline, marks) || has(types.link, marks)))
+             .then_some(UnderlineStyle {
+-                thickness: px(1.),
++                thickness: style.decoration_thickness,
+                 color: Some(ink),
+                 wavy: false,
+             }),
+             strikethrough: (has(types.strikethrough, marks) && !markup)
+                 .then_some(StrikethroughStyle {
+-                    thickness: px(1.),
++                    thickness: style.decoration_thickness,
+                     color: Some(ink),
+                 })
+                 .or(done),
+@@ -312,7 +312,10 @@ pub(super) fn highlight_runs(
+             runs.push(TextRun {
+                 len: span.len,
+                 font: face,
+-                color: rgb(span.tone.rgb(dark)).into(),
++                color: style.syntax_tones.map_or_else(
++                    || rgb(span.tone.rgb(dark)).into(),
++                    |tones| tones[span.tone as usize],
++                ),
+                 background_color: None,
+                 underline: None,
+                 strikethrough: None,
+--- a/crates/markraft-gpui/src/surface/shape.rs
++++ b/crates/markraft-gpui/src/surface/shape.rs
+@@ -234,10 +234,10 @@ pub(super) fn shape_line(
+         // The measuring pass is unconstrained, but an atom still needs a nominal
+         // column to size itself against.
+         Some(CellWidth::Natural) => (width - indent).max(px(40.)),
+-        None => (width - indent - if code { CODE_PADDING } else { px(0.) }).max(px(40.)),
++        None => (width - indent - if code { style.code_padding } else { px(0.) }).max(px(40.)),
+     };
+     let unwrapped = single_line || cell == Some(CellWidth::Natural);
+-    let line_height = font_size * style.line_height_ratio;
++    let line_height = style.line_height(font_size, heading, code);
+     let mut render_objects = true;
+     let (text, runs, rows) = loop {
+         let text = display_text_mode(
+@@ -360,7 +360,7 @@ pub(super) fn shape_line(
+     // A code block's panel reaches above its text, at the top of the document
+     // as anywhere else. Everything else starts flush and only a heading claims
+     // space.
+-    let code_inset = if code { CODE_INSET } else { px(0.) };
++    let code_inset = if code { style.code_inset } else { px(0.) };
+     let top_gap = if code {
+         code_inset
+     } else if index == 0 {
+@@ -463,6 +463,7 @@ pub(super) fn shape_line(
+         decoration,
+         code_language,
+         code_inset,
++        code_padding: style.code_padding,
+         marker_inset,
+         preview,
+         quote_bars,
+@@ -498,7 +499,13 @@ pub(super) fn shape_line(
+             .as_ref()
+             .map_or(px(0.), |(_, size)| PREVIEW_GAP + size.height)
+         + gap;
+-    shape_inline_code(&mut layout, &runs.code, font_size, text_system);
++    shape_inline_code(
++        &mut layout,
++        &runs.code,
++        font_size,
++        style.inline_code_padding,
++        text_system,
++    );
+     place_atoms(&mut layout, text.atoms);
+     place_formulas(&mut layout, text.formulas, text.math_previews, font_size);
+     // A verbatim line the kind can render — an HTML block — is drawn as its page
+@@ -661,6 +668,7 @@ pub(super) fn shape_inline_code(
+     layout: &mut LayoutLine,
+     code_ranges: &[Repaint],
+     font_size: Pixels,
++    inline_code_padding: Pixels,
+     text_system: &WindowTextSystem,
+ ) {
+     if code_ranges.is_empty() {
+@@ -715,7 +723,7 @@ pub(super) fn shape_inline_code(
+         // leave long spans mostly padding, so its size is chosen to leave about
+         // `INLINE_CODE_PADDING` on either side of each visual row instead.
+         let reserved: Pixels = pieces.iter().map(|(_, _, slot)| slot.size.width).sum();
+-        let padding = INLINE_CODE_PADDING * 2. * pieces.len() as f32;
++        let padding = inline_code_padding * 2. * pieces.len() as f32;
+         let (scale, lift) = if *raised && *lowered {
+             (SUPERSCRIPT_SCALE, -(font_size * SUBSCRIPT_DROP).round())
+         } else if *raised {
+--- a/crates/markraft-gpui/src/surface/table.rs
++++ b/crates/markraft-gpui/src/surface/table.rs
+@@ -33,14 +33,15 @@ pub(super) fn shape_table(
+         .quote_depth(&first.source)
+         .min(visible_levels(input.style, max_indent(input.style, width)));
+ 
+-    let (preferred, minimum) = column_demands(cells, &grid, columns);
++    let padding = point(input.style.cell_padding_x, input.style.cell_padding_y);
++    let (preferred, minimum) = column_demands(cells, &grid, columns, padding.x);
+     let widths = column_widths(&preferred, &minimum, (width - left).max(CELL_MIN_WIDTH));
+     // Taken before the reshape, which replaces each cell's width with the
+     // column's: this is what an alignment offsets inside the column.
+     let natural: Vec<Pixels> = cells.iter().map(|cell| cell.width).collect();
+ 
+     for (index, cell) in cells.iter_mut().enumerate() {
+-        let content = (widths[grid[index].1] - CELL_PADDING_X * 2.).max(px(1.));
++        let content = (widths[grid[index].1] - padding.x * 2.).max(px(1.));
+         *cell = shape_line(
+             input,
+             cell.index,
+@@ -55,7 +56,7 @@ pub(super) fn shape_table(
+         heights[grid[index].0] = heights[grid[index].0].max(cell.text_height());
+     }
+     for height in &mut heights {
+-        *height += CELL_PADDING_Y * 2.;
++        *height += padding.y * 2.;
+     }
+     place_table(
+         cells,
+@@ -67,6 +68,7 @@ pub(super) fn shape_table(
+         &alignments,
+         left,
+         gap,
++        padding,
+     );
+     for line in cells.iter_mut() {
+         if let Some(cell) = &mut line.table {
+@@ -95,12 +97,13 @@ pub(super) fn column_demands(
+     cells: &[LayoutLine],
+     grid: &[(usize, usize)],
+     columns: usize,
++    padding: Pixels,
+ ) -> (Vec<Pixels>, Vec<Pixels>) {
+     let mut preferred = vec![CELL_MIN_WIDTH; columns];
+     let mut minimum = vec![CELL_MIN_WIDTH; columns];
+     for (cell, (_, column)) in cells.iter().zip(grid) {
+-        preferred[*column] = preferred[*column].max(cell.width.ceil() + CELL_PADDING_X * 2.);
+-        minimum[*column] = minimum[*column].max(cell.min_width.ceil() + CELL_PADDING_X * 2.);
++        preferred[*column] = preferred[*column].max(cell.width.ceil() + padding * 2.);
++        minimum[*column] = minimum[*column].max(cell.min_width.ceil() + padding * 2.);
+     }
+     (preferred, minimum)
+ }
+@@ -183,6 +186,7 @@ pub(super) fn place_table(
+     alignments: &[ColumnAlignment],
+     left: Pixels,
+     gap: Pixels,
++    padding: Point<Pixels>,
+ ) {
+     let (rows, columns) = (heights.len(), widths.len());
+     let mut offsets = Vec::with_capacity(columns);
+@@ -193,7 +197,7 @@ pub(super) fn place_table(
+     }
+     for (index, cell) in cells.iter_mut().enumerate() {
+         let (row, column) = grid[index];
+-        let content = (widths[column] - CELL_PADDING_X * 2.).max(px(0.));
++        let content = (widths[column] - padding.x * 2.).max(px(0.));
+         let slack = (content - natural[index]).max(px(0.));
+         let shift = match alignments[column] {
+             ColumnAlignment::Center => slack * 0.5,
+@@ -201,10 +205,7 @@ pub(super) fn place_table(
+             ColumnAlignment::None | ColumnAlignment::Left => px(0.),
+         };
+         let last_of_row = grid.get(index + 1).map(|(next, _)| *next) != Some(row);
+-        cell.origin = point(
+-            left + offsets[column] + CELL_PADDING_X + shift,
+-            CELL_PADDING_Y,
+-        );
++        cell.origin = point(left + offsets[column] + padding.x + shift, padding.y);
+         // The text starts where the alignment put it and the cell still ends at
+         // its own right edge, so End and a wrapped row's fill both stop there.
+         cell.width = content - shift;
+@@ -224,7 +225,7 @@ pub(super) fn place_table(
+             // Filled in by the caller, which is the pass that knows the grid's
+             // ancestors.
+             quotes: 0,
+-            offset: point(-(CELL_PADDING_X + shift), -CELL_PADDING_Y),
++            offset: point(-(padding.x + shift), -padding.y),
+             size: size(widths[column], heights[row]),
+         });
+     }
+--- a/crates/markraft-gpui/src/surface/tests.rs
++++ b/crates/markraft-gpui/src/surface/tests.rs
+@@ -46,6 +46,7 @@ fn probe(index: usize, line: &markraft_core::projection::Line) -> LayoutLine {
+         code_language: None,
+         callout_header: None,
+         code_inset: px(0.),
++        code_padding: px(0.),
+         marker_inset: px(0.),
+         preview: None,
+         quote_bars: Vec::new(),
+@@ -1796,6 +1797,7 @@ fn placed_table(alignment: ColumnAlignment, natural: Pixels) -> Vec<LayoutLine>
+         &[alignment; 2],
+         px(4.),
+         px(7.),
++        point(CELL_PADDING_X, CELL_PADDING_Y),
+     );
+     cells
+ }
+@@ -1865,7 +1867,7 @@ fn a_bold_header_floors_its_column_at_the_width_the_bold_word_needs() {
+         cell.min_width = measured;
+     }
+     let grid = [(0, 0), (0, 1), (1, 0), (1, 1)];
+-    let (preferred, minimum) = column_demands(&cells, &grid, 2);
++    let (preferred, minimum) = column_demands(&cells, &grid, 2, CELL_PADDING_X);
+     assert_eq!(
+         preferred, minimum,
+         "a one-word column cannot give anything up"
+@@ -2297,6 +2299,52 @@ fn task_host_sizes_put_bullets_numbers_and_boxes_in_one_marker_column() {
+     }
+ }
+ 
++/// A host that scales its geometry with the reading size replaces the fixed
++/// constants: code panel, cell padding, line heights and code size all follow
++/// the style, and the default style still draws what the constants did.
++#[test]
++fn host_geometry_replaces_the_fixed_constants() {
++    let source = "# Title\n\nBody\n\n```\ncode\n```\n\n| A | B |\n|---|---|\n| 1 | 2 |\n";
++    let defaults = EditorStyle::notes();
++    assert_eq!(defaults.code_padding, super::CODE_PADDING);
++    assert_eq!(defaults.code_inset, CODE_INSET);
++    assert_eq!(defaults.cell_padding_x, CELL_PADDING_X);
++    assert_eq!(defaults.quote_bar_width, QUOTE_BAR);
++    for reading_size in [9., 12., 24., 48.] {
++        let em = |k: f32| px((reading_size * k).round());
++        let style = EditorStyle {
++            body_size: px(reading_size),
++            line_height_ratio: 1.25,
++            heading_line_height_ratio: Some(1.1),
++            code_line_height_ratio: Some(1.3),
++            code_size: Some(px(reading_size * 0.875)),
++            code_padding: em(0.8),
++            code_inset: em(0.6),
++            cell_padding_x: em(0.6),
++            cell_padding_y: em(0.33),
++            ..EditorStyle::notes()
++        };
++        let rows = per_line(source, &style, |input, index, _| {
++            super::shape_line(input, index, px(600.), None, &text_system())
++        });
++        let heading = &rows[0];
++        assert_eq!(heading.line_height, style.heading_sizes[0] * 1.1);
++        let body = rows
++            .iter()
++            .find(|row| row.rows[0].text() == "Body")
++            .unwrap();
++        assert_eq!(body.line_height, px(reading_size) * 1.25);
++        let code = rows
++            .iter()
++            .find(|row| row.rows[0].text() == "code")
++            .unwrap();
++        assert_eq!(code.code_inset, em(0.6));
++        assert_eq!(code.code_padding, em(0.8));
++        assert_eq!(code.line_height, px(reading_size * 0.875) * 1.3);
++        assert_eq!(code.origin.x - code.code_padding, body.origin.x);
++    }
++}
++
+ /// An item that opens with a quote or a fence draws its marker where every
+ /// item of its list does, left of the quote's bar and the code panel.
+ #[test]
+@@ -2346,7 +2394,7 @@ fn a_grid_inside_a_quote_draws_its_own_bars() {
+         .expect("a placed table has a grid");
+     assert_eq!(grid.size.height, px(70.), "rows of 30 and 40");
+     assert_eq!(
+-        quote_bars(grid, 2, px(0.), px(12.)),
++        quote_bars(grid, 2, px(0.), px(12.), QUOTE_BAR),
+         vec![
+             Bounds::new(point(px(-20.), px(0.)), size(QUOTE_BAR, px(70.))),
+             Bounds::new(point(px(-8.), px(0.)), size(QUOTE_BAR, px(70.))),
+@@ -2355,10 +2403,10 @@ fn a_grid_inside_a_quote_draws_its_own_bars() {
+     );
+     // A scrolling grid slides under its bars rather than taking them along.
+     assert_eq!(
+-        quote_bars(grid, 1, px(30.), px(12.))[0].left(),
++        quote_bars(grid, 1, px(30.), px(12.), QUOTE_BAR)[0].left(),
+         px(4.) + px(30.) - px(12.)
+     );
+-    assert!(quote_bars(grid, 0, px(0.), px(12.)).is_empty());
++    assert!(quote_bars(grid, 0, px(0.), px(12.), QUOTE_BAR).is_empty());
+ }
+ 
+ /// The caret's cell is brought into the visible strip, as the vertical

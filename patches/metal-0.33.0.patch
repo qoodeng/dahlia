@@ -1,0 +1,12 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -158,7 +158,8 @@
+ version = "0.2.4"
+ 
+ [dependencies.paste]
+-version = "1"
++package = "pastey"
++version = "0.2.3"
+ 
+ [dev-dependencies.cocoa]
+ version = "0.26.0"

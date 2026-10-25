@@ -1,0 +1,57 @@
+name: Performance benchmarks
+
+# Benchmarks are `#[ignore]` tests in src/perf_bench.rs. Weekly and on demand to keep runner cost low.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  benchmarks:
+    name: perf_bench (release, macOS)
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            vendor/markraft/.build
+            target
+          key: perf-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'patches/*.patch', 'scripts/prepare.sh') }}-${{ github.sha }}
+          restore-keys: |
+            perf-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'patches/*.patch', 'scripts/prepare.sh') }}-
+            perf-
+      - name: Prepare Markraft (scripts/prepare.sh)
+        run: sh scripts/prepare.sh
+      # One thread so benchmarks never compete with each other for disk or CPU.
+      - name: Benchmarks
+        run: |
+          set -o pipefail
+          cargo test --locked --release --bin dahlia -- --ignored --nocapture --test-threads=1 perf_bench 2>&1 | tee perf_bench.txt
+      - name: Summary
+        if: always()
+        run: |
+          # A bench's first line follows libtest's "test name ... " on the same line.
+          { echo '```'; grep -oE '(PERF|MEM) .*' perf_bench.txt || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf_bench-${{ github.sha }}
+          path: perf_bench.txt

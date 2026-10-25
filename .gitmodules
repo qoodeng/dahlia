@@ -1,0 +1,4 @@
+[submodule "vendor/markraft"]
+	path = vendor/markraft
+	url = https://github.com/ahonn/markraft.git
+	ignore = dirty # Host patch is checked in under patches/ and verified by prepare.sh.

@@ -1,0 +1,18 @@
+/target/
+/.cargo-home/
+/evidence/*.log
+/evidence/test-data/
+/evidence/comparison-data/
+/evidence/stage2-data/
+.DS_Store
+/evidence/stage3-data/
+/evidence/stage4-data/
+/evidence/stage4-transfer/
+/build/
+/evidence/stage4-final-data/
+
+/.build/
+__pycache__/
+
+# Fabro run notes (plan, review, visual verdict)
+.factory/

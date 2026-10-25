@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  macos:
+    name: macOS (fmt, clippy, test, patch drift)
+    # GitHub-hosted: the repository is public, so pull requests from forks must never run on
+    # the owner's own Mac (the self-hosted factory runner).
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      # The macOS GPUI platform needs full Xcode, not the Command Line Tools.
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Toolchain (rust-toolchain.toml)
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustc --version
+          xcodebuild -version
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            vendor/markraft/.build
+            target
+          key: macos-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'patches/*.patch', 'scripts/prepare.sh') }}-${{ github.sha }}
+          restore-keys: |
+            macos-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'patches/*.patch', 'scripts/prepare.sh') }}-
+            macos-
+      - name: Prepare Markraft (scripts/prepare.sh)
+        run: sh scripts/prepare.sh
+      - name: Maintained dependency preparation tests
+        run: python3 scripts/prepare-maintained-dependencies-test.py
+      - name: Patch drift
+        run: sh scripts/check-patch-drift.sh
+      - name: Packaging and release script tests
+        run: |
+          python3 scripts/package-mac-test.py
+          python3 scripts/prepare-sparkle-test.py
+          python3 scripts/release-test.py
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked
+      - name: Install coverage tools
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --version 0.9.1 --locked
+      - name: Coverage report
+        run: |
+          mkdir -p target/coverage
+          cargo llvm-cov --locked --release --all-targets --lcov --output-path target/coverage/lcov.info
+      # Artifact storage is billed; a refused upload must not fail the checks above.
+      - name: Upload coverage report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-coverage
+          path: target/coverage/lcov.info
+          if-no-files-found: error
+
+  linux:
+    name: Linux (clippy, test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
+            libxcb1-dev libfontconfig1-dev libfreetype-dev libvulkan-dev libssl-dev pkg-config
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            vendor/markraft/.build
+            target
+          key: linux-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'patches/*.patch', 'scripts/prepare.sh') }}-${{ github.sha }}
+          restore-keys: |
+            linux-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'patches/*.patch', 'scripts/prepare.sh') }}-
+            linux-
+      # Cargo resolves the macOS [patch] path on every platform, so Linux prepares too.
+      - name: Prepare Markraft (scripts/prepare.sh)
+        run: sh scripts/prepare.sh
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      # The unit tests use GPUI's test platform and need no display or GPU.
+      - name: Test
+        run: cargo test --locked
+
+  dependencies:
+    name: Dependencies (cargo-deny advisories, licenses, sources)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      # cargo metadata resolves the [patch] paths, so the prepared sources must exist.
+      - name: Prepare Markraft (scripts/prepare.sh)
+        run: sh scripts/prepare.sh
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny check
+        run: cargo deny --locked check

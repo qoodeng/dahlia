@@ -1,0 +1,96 @@
+{
+  "Swift owned production": {
+    "files": 36,
+    "raw_lines": 5320,
+    "nonblank_lines": 5079,
+    "nonblank_not_comment_only_lines": 4778
+  },
+  "Swift embedded checks": {
+    "files": 28,
+    "raw_lines": 5150,
+    "nonblank_lines": 4979,
+    "nonblank_not_comment_only_lines": 4809
+  },
+  "Swift linked vendor editor": {
+    "files": 85,
+    "raw_lines": 21167,
+    "nonblank_lines": 19305,
+    "nonblank_not_comment_only_lines": 14427
+  },
+  "Swift unlinked vendor reference checkout": {
+    "files": 154,
+    "raw_lines": 33758,
+    "nonblank_lines": 30249,
+    "nonblank_not_comment_only_lines": 23620
+  },
+  "Swift external test fixtures": {
+    "files": 10,
+    "raw_lines": 1433,
+    "nonblank_lines": 1368,
+    "nonblank_not_comment_only_lines": 1344
+  },
+  "Swift scripts": {
+    "files": 12,
+    "raw_lines": 670,
+    "nonblank_lines": 650,
+    "nonblank_not_comment_only_lines": 647
+  },
+  "Swift docs": {
+    "files": 26,
+    "raw_lines": 2861,
+    "nonblank_lines": 2161,
+    "nonblank_not_comment_only_lines": 2084
+  },
+  "Rust linked Markraft source (includes upstream inline tests)": {
+    "files": 192,
+    "raw_lines": 93186,
+    "nonblank_lines": 87868,
+    "nonblank_not_comment_only_lines": 74432
+  },
+  "Rust linked Markraft external tests": {
+    "files": 23,
+    "raw_lines": 14132,
+    "nonblank_lines": 13289,
+    "nonblank_not_comment_only_lines": 11907
+  },
+  "Rust unused Markraft crates (checkout only)": {
+    "files": 132,
+    "raw_lines": 57244,
+    "nonblank_lines": 54603,
+    "nonblank_not_comment_only_lines": 49820
+  },
+  "Rust scripts": {
+    "files": 2,
+    "raw_lines": 78,
+    "nonblank_lines": 73,
+    "nonblank_not_comment_only_lines": 73
+  },
+  "Rust docs": {
+    "files": 11,
+    "raw_lines": 238,
+    "nonblank_lines": 161,
+    "nonblank_not_comment_only_lines": 160
+  },
+  "Rust shared comparison fixture": {
+    "files": 1,
+    "raw_lines": 26,
+    "nonblank_lines": 18,
+    "nonblank_not_comment_only_lines": 18
+  },
+  "Rust owned production": {
+    "files": 8,
+    "raw_lines": 2102,
+    "nonblank_lines": 2058,
+    "nonblank_not_comment_only_lines": 2040
+  },
+  "Rust inline tests": {
+    "files": 4,
+    "raw_lines": 401,
+    "nonblank_lines": 401,
+    "nonblank_not_comment_only_lines": 399
+  },
+  "method": "Physical lines. Comment-only column is a prefix heuristic, not a language parser; inline comments remain. Rust top-level tests split at cfg(test); test-only helper methods remain in the production physical-line count. Swift QA matches Package.swift exclusions/FindChecks. Generated files and registry dependencies excluded. Markraft src includes its inline tests.",
+  "swift_commit": "2ae2c2c251d4f2bc5b918c3b3ae5ab25c8c92229",
+  "swift_status": "",
+  "rust_scope": "Multi-note Classic/Glass prototype, not full Swift parity."
+}

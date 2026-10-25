@@ -1,0 +1,111 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -87,10 +87,6 @@
+ [dependencies.html5ever]
+ version = "0.27"
+ 
+-[dependencies.instant]
+-version = "0.1"
+-features = ["wasm-bindgen"]
+-
+ [dependencies.lsp-types]
+ version = "0.97.0"
+ features = ["proposed"]
+--- a/src/hover_card.rs
++++ b/src/hover_card.rs
+@@ -5,7 +5,7 @@
+     ParentElement as _, Render, RenderOnce, Stateful, StatefulInteractiveElement as _, Task,
+     Window, div, prelude::FluentBuilder as _,
+ };
+-use instant::Duration;
++use web_time::Duration;
+ 
+ use crate::Popup;
+ 
+--- a/src/input/base/blink_cursor.rs
++++ b/src/input/base/blink_cursor.rs
+@@ -1,5 +1,5 @@
+ use gpui::{Context, Pixels, Task, px};
+-use instant::Duration;
++use web_time::Duration;
+ 
+ static INTERVAL: Duration = Duration::from_millis(500);
+ static PAUSE_DELAY: Duration = Duration::from_millis(300);
+--- a/src/input/editor/lsp/document_colors.rs
++++ b/src/input/editor/lsp/document_colors.rs
+@@ -1,6 +1,6 @@
+ use anyhow::Result;
+ use gpui::{App, Context, Hsla, Task, Window};
+-use instant::Duration;
++use web_time::Duration;
+ use lsp_types::ColorInformation;
+ use ropey::Rope;
+ use std::ops::Range;
+--- a/src/input/editor/lsp/hover.rs
++++ b/src/input/editor/lsp/hover.rs
+@@ -1,6 +1,6 @@
+ use anyhow::Result;
+ use gpui::{App, Context, MouseMoveEvent, Task, Window};
+-use instant::Duration;
++use web_time::Duration;
+ use ropey::Rope;
+ 
+ use crate::input::{EditorMode, HoverPopoverState, InputBaseState, RopeExt};
+--- a/src/input/editor/lsp/semantic_tokens.rs
++++ b/src/input/editor/lsp/semantic_tokens.rs
+@@ -2,7 +2,7 @@
+ 
+ use anyhow::Result;
+ use gpui::{App, Context, HighlightStyle, SharedString, Task, Window};
+-use instant::Duration;
++use web_time::Duration;
+ use lsp_types::{Position, SemanticTokens, SemanticTokensLegend};
+ use ropey::Rope;
+ 
+--- a/src/measure.rs
++++ b/src/measure.rs
+@@ -28,7 +28,7 @@
+ /// An elapsed-time measurement emitted through `tracing` when ended.
+ pub struct Measure {
+     name: SharedString,
+-    start: instant::Instant,
++    start: web_time::Instant,
+ }
+ 
+ impl Measure {
+@@ -36,7 +36,7 @@
+     pub fn new(name: impl Into<SharedString>) -> Self {
+         Self {
+             name: name.into(),
+-            start: instant::Instant::now(),
++            start: web_time::Instant::now(),
+         }
+     }
+ 
+--- a/src/scrollbar.rs
++++ b/src/scrollbar.rs
+@@ -1,6 +1,6 @@
+ use std::{cell::Cell, ops::Deref, panic::Location, rc::Rc};
+ 
+-use instant::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use crate::{
+     AxisExt,
+--- a/src/undo_history.rs
++++ b/src/undo_history.rs
+@@ -1,4 +1,4 @@
+-use instant::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ /// A history of grouped undo transactions.
+ #[derive(Debug)]
+@@ -147,7 +147,7 @@
+ 
+ #[cfg(test)]
+ mod tests {
+-    use instant::Duration;
++    use web_time::Duration;
+ 
+     use super::UndoHistory;
+ 

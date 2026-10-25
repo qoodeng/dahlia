@@ -1,0 +1,290 @@
+diff --git a/crates/markraft-commonmark/src/extensions.rs b/crates/markraft-commonmark/src/extensions.rs
+index 88d4701..92c84b9 100644
+--- a/crates/markraft-commonmark/src/extensions.rs
++++ b/crates/markraft-commonmark/src/extensions.rs
+@@ -614,6 +614,19 @@ fn spelled_definitions(cx: &CorrectionContext<'_>) -> Option<String> {
+ 
+ // -- the canonicalising correction -------------------------------------------
+ 
++struct CanonicalRound {
++    candidates: Vec<String>,
++    original_candidates: Vec<String>,
++    changes: Vec<ChangeRange>,
++}
++fn canonical_round(cx: &CorrectionContext<'_>) -> Arc<CanonicalRound> {
++    cx.memoized(|| CanonicalRound {
++        candidates: definition_candidates(cx.start_state.schema(), cx.doc),
++        original_candidates: definition_candidates(cx.start_state.schema(), cx.start_state.doc()),
++        changes: cx.tr.changes().iter_changes(),
++    })
++}
++
+ /// Bring one textblock back to what its source says. See the module
+ /// documentation for the steps and their order.
+ fn canonicalise(cx: &CorrectionContext<'_>) -> Vec<Change> {
+@@ -632,22 +645,19 @@ fn canonicalise(cx: &CorrectionContext<'_>) -> Vec<Change> {
+     let first_round = cx.doc.ptr_eq(cx.tr.new_doc());
+     let items = Items::from_nodes(schema, cx.node.children());
+     let carets = caret_lines(cx, &items);
+-    let candidates = definition_candidates(schema, cx.doc);
++    let round = canonical_round(cx);
++    let candidates = &round.candidates;
+     // A caret leaving the spelling of an atom, even along its own line, is
+     // what folds it again.
+     let left = cx.selection_left && (left_a_line(cx, &items, &carets) || may_spell_an_atom(&items));
+-    if first_round
+-        && !edits_characters(cx)
+-        && !left
+-        && candidates == definition_candidates(schema, cx.start_state.doc())
+-    {
++    if first_round && !edits_characters(cx) && !left && *candidates == round.original_candidates {
+         return Vec::new();
+     }
+     let lines = settle_lines(cx, kind, &items, &carets);
+     if !lines.is_empty() {
+         return lines;
+     }
+-    let ctx = definitions_context(&candidates);
++    let ctx = definitions_context(candidates);
+     let text = items.text();
+     let derived = derive(kind, &text, &ctx);
+     let atoms = fold_atoms(cx, &derived);
+@@ -678,11 +688,12 @@ fn follow_definitions(cx: &CorrectionContext<'_>) -> Vec<Change> {
+     if !cx.doc.ptr_eq(cx.tr.new_doc()) {
+         return Vec::new();
+     }
+-    let candidates = definition_candidates(schema, cx.doc);
+-    if candidates == definition_candidates(schema, cx.start_state.doc()) {
++    let round = canonical_round(cx);
++    let candidates = &round.candidates;
++    if *candidates == round.original_candidates {
+         return Vec::new();
+     }
+-    let ctx = definitions_context(&candidates);
++    let ctx = definitions_context(candidates);
+     let mut out = Vec::new();
+     cx.doc.descendants(&mut |node, pos, _, _| {
+         let Some(kind) = block_kind(schema, node.type_id()) else {
+@@ -713,10 +724,18 @@ fn edits_characters(cx: &CorrectionContext<'_>) -> bool {
+     let start = cx.content_start;
+     let end = start + cx.node.content_size();
+     let text_of = |slice: &Slice| markraft_core::projection::slice_to_plain_text(schema, slice);
+-    cx.tr
+-        .changes()
+-        .iter_changes()
++    let round = canonical_round(cx);
++    let changes = &round.changes;
++    let first = changes.partition_point(|change| match change {
++        ChangeRange::Marked { to_b, .. } | ChangeRange::Replaced { to_b, .. } => *to_b < start,
++    });
++    changes[first..]
+         .iter()
++        .take_while(|change| match change {
++            ChangeRange::Marked { from_b, .. } | ChangeRange::Replaced { from_b, .. } => {
++                *from_b <= end
++            }
++        })
+         .any(|change| match change {
+             ChangeRange::Marked { .. } => false,
+             ChangeRange::Replaced {
+diff --git a/crates/markraft-core/src/corrections.rs b/crates/markraft-core/src/corrections.rs
+index 7ea977b..c4a9ee6 100644
+--- a/crates/markraft-core/src/corrections.rs
++++ b/crates/markraft-core/src/corrections.rs
+@@ -55,7 +55,12 @@
+ //! # let _ = extension;
+ //! ```
+ 
+-use std::sync::{Arc, LazyLock};
++use std::{
++    any::{Any, TypeId},
++    cell::RefCell,
++    collections::HashMap,
++    sync::{Arc, LazyLock},
++};
+ 
+ use crate::change::{Change, ChangeRange, ChangeSet};
+ use crate::fragment::Fragment;
+@@ -116,9 +121,27 @@ pub struct CorrectionContext<'a> {
+     touched: &'a [(usize, usize)],
+     /// The positions of `doc` the selection left, in the first round.
+     left: &'a [usize],
++    cache: &'a RefCell<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+ }
+ 
+ impl CorrectionContext<'_> {
++    /// Share document-wide derived data between node observers in this round.
++    /// Each concrete type has one entry; use a distinct wrapper for each value.
++    /// The cache is discarded before the document changes or another round starts.
++    pub fn memoized<T: Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> Arc<T> {
++        if let Some(value) = self.cache.borrow().get(&TypeId::of::<T>()) {
++            return value
++                .clone()
++                .downcast::<T>()
++                .expect("cache key matches value type");
++        }
++        let value = Arc::new(init());
++        self.cache
++            .borrow_mut()
++            .insert(TypeId::of::<T>(), value.clone());
++        value
++    }
++
+     /// Whether this round's input reached `from..=to` of [`CorrectionContext::doc`]:
+     /// a change touched it, or an end of the selection left it.
+     ///
+@@ -397,12 +420,14 @@ fn corrections_for(
+     marked: &[(usize, usize)],
+     left: &[usize],
+ ) -> Vec<Change> {
+-    let touched: Vec<(usize, usize)> = replaced.iter().chain(marked.iter()).copied().collect();
+-    let visited: Vec<(usize, usize)> = touched
+-        .iter()
+-        .copied()
+-        .chain(left.iter().map(|pos| (*pos, *pos)))
+-        .collect();
++    let touched = merged_ranges(replaced.iter().chain(marked.iter()).copied());
++    let visited = merged_ranges(
++        touched
++            .iter()
++            .copied()
++            .chain(left.iter().map(|pos| (*pos, *pos))),
++    );
++    let cache = RefCell::new(HashMap::new());
+     let mut out: Vec<Change> = Vec::new();
+ 
+     let mut visit = |node: &Node, content_start: usize, before: Option<usize>| {
+@@ -438,6 +463,7 @@ fn corrections_for(
+                 selection_left,
+                 touched: &touched,
+                 left,
++                cache: &cache,
+             };
+             out.extend((correction.correct)(&cx));
+         }
+@@ -459,8 +485,23 @@ fn corrections_for(
+     out
+ }
+ 
++fn merged_ranges(ranges: impl Iterator<Item = (usize, usize)>) -> Vec<(usize, usize)> {
++    let mut ranges: Vec<_> = ranges.collect();
++    ranges.sort_unstable();
++    let mut merged: Vec<(usize, usize)> = Vec::new();
++    for (from, to) in ranges {
++        match merged.last_mut() {
++            Some(last) if from <= last.1 => last.1 = last.1.max(to),
++            _ => merged.push((from, to)),
++        }
++    }
++    merged
++}
++
+ fn overlaps(ranges: &[(usize, usize)], from: usize, to: usize) -> bool {
+-    ranges.iter().any(|(a, b)| *b >= from && *a <= to)
++    ranges
++        .get(ranges.partition_point(|(_, end)| *end < from))
++        .is_some_and(|(start, _)| *start <= to)
+ }
+ 
+ /// Whether the node itself was part of inserted content.
+@@ -538,3 +579,21 @@ pub fn fill_required_content(node_type: NodeTypeId) -> Correction {
+         )]
+     })
+ }
++
++#[cfg(test)]
++mod batch_tests {
++    use super::*;
++    #[test]
++    fn indexed_ranges_match_inclusive_overlap_for_nested_and_empty_edits() {
++        let raw = [(12, 14), (2, 9), (4, 5), (9, 10), (20, 20)];
++        let merged = merged_ranges(raw.into_iter());
++        for from in 0..25 {
++            for to in from..25 {
++                assert_eq!(
++                    overlaps(&merged, from, to),
++                    raw.iter().any(|(a, b)| *b >= from && *a <= to)
++                );
++            }
++        }
++    }
++}
+diff --git a/crates/markraft-core/src/tests/corrections_tests.rs b/crates/markraft-core/src/tests/corrections_tests.rs
+index 0f8fbbe..4d66e8d 100644
+--- a/crates/markraft-core/src/tests/corrections_tests.rs
++++ b/crates/markraft-core/src/tests/corrections_tests.rs
+@@ -527,3 +527,74 @@ fn corrections_whose_first_round_cannot_combine_still_report_divergence() {
+     // The user's own edit still goes through, untouched.
+     assert_eq!(schema.describe(tr.new_doc()), r#"doc(paragraph("xy"))"#);
+ }
++
++#[test]
++fn correction_round_shares_derived_data_but_never_reuses_it_for_another_document() {
++    struct RoundText(String);
++    let schema = shared_schema();
++    let paragraph = schema.node_id("paragraph").unwrap();
++    let calls = Arc::new(AtomicUsize::new(0));
++    let initialized = calls.clone();
++    let observer = Correction::on_content(paragraph, move |cx| {
++        let derived = cx.memoized(|| {
++            initialized.fetch_add(1, Ordering::SeqCst);
++            RoundText(cx.doc.text_between(
++                cx.start_state.schema(),
++                0,
++                cx.doc.content_size(),
++                Some("\n"),
++                None,
++            ))
++        });
++        assert_eq!(
++            derived.0,
++            cx.doc.text_between(
++                cx.start_state.schema(),
++                0,
++                cx.doc.content_size(),
++                Some("\n"),
++                None
++            )
++        );
++        Vec::new()
++    });
++    let start = state(
++        doc(
++            &schema,
++            [
++                n(&schema, "paragraph", [t(&schema, "a")]),
++                n(&schema, "paragraph", [t(&schema, "b")]),
++            ],
++        ),
++        corrections([observer]),
++    );
++    let first = start
++        .update([TransactionSpec::new().changes([
++            Change::insert(
++                1,
++                Slice::from_fragment(Fragment::from_node(schema.text("x"))),
++            ),
++            Change::insert(
++                4,
++                Slice::from_fragment(Fragment::from_node(schema.text("y"))),
++            ),
++        ])])
++        .unwrap();
++    assert_eq!(
++        calls.load(Ordering::SeqCst),
++        1,
++        "one initialization for both paragraphs"
++    );
++    let _second = first
++        .state()
++        .update([TransactionSpec::new().changes([Change::insert(
++            1,
++            Slice::from_fragment(Fragment::from_node(schema.text("z"))),
++        )])])
++        .unwrap();
++    assert_eq!(
++        calls.load(Ordering::SeqCst),
++        2,
++        "the next document has a fresh cache"
++    );
++}

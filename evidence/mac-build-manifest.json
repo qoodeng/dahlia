@@ -1,0 +1,16 @@
+{
+  "commit": "ff06c6e622f1251fa6a8fd96fcd65ae87b288494",
+  "version": "0.1.0",
+  "kind": "development Mac build",
+  "platform_tested": "Apple Silicon macOS 26.5.2",
+  "executable_sha256": "a55912a5ef50f3e3131fb0175e9628dbbdcb76622e1fde9dcddc7825eff67be3",
+  "icon_sha256": "9af271f98b03fe33317c8f80eca832ee7d79194076ad3913fc2d5093ec8aecf9",
+  "core_tests": 12,
+  "exact_stickies_exterior_border": "unverified; permitted captures do not include exterior pixels",
+  "signing": "ad hoc signature verified by codesign --verify --deep --strict; no Developer ID or notarization",
+  "archive_sha256": "7236b517def63029d0723b73e94724e828f4dc7fa915d8e34adfdd1e3196ed51",
+  "archive_bytes": 19504615,
+  "library_file_id": "libfile_c1f2578b22cc81918a2e7416c0def561",
+  "library_file_version": 0,
+  "archive_extraction_signature_check": "codesign --verify --deep --strict succeeded"
+}

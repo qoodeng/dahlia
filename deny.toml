@@ -1,0 +1,22 @@
+# Every RustSec advisory fails CI except the ones listed below, each with the crate that
+# pins it and why it cannot be replaced from Dahlia. All three are "unmaintained" notices;
+# none is a vulnerability. Re-check them when GPUI, Markraft or syntect move, and delete an
+# entry as soon as the dependency is gone (cargo-deny warns about unused ignores).
+[advisories]
+ignore = [
+    # bincode 1.3.3, via syntect 5.3 (Markraft's syntax highlighting, newest release) to
+    # read its packed syntax sets. Data is compiled into the binary, never parsed from users.
+    { id = "RUSTSEC-2025-0141", reason = "bincode is pinned by syntect 5.3 (Markraft syntax highlighting) and only decodes bundled syntax sets" },
+    # rustybuzz 0.20, via usvg 0.46, which GPUI 0.3.6 pins for SVG icons.
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz is pinned by usvg 0.46 inside GPUI 0.3.6; shapes text in bundled SVGs only" },
+    # ttf-parser 0.25, via fontdb/cosmic-text (GPUI's Linux text system) and usvg.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is pinned by GPUI 0.3.6's fontdb/cosmic-text and usvg; no maintained drop-in exists" },
+]
+# bzip2-1.0.6 is the permissive upstream bzip2 license; retain its copyright notice.
+[licenses]
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "Unicode-3.0", "Unicode-DFS-2016", "CC0-1.0", "BSL-1.0", "MPL-2.0", "OpenSSL", "bzip2-1.0.6"]
+[bans]
+multiple-versions = "warn"
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

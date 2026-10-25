@@ -1,0 +1,398 @@
+diff --git a/crates/markraft-commonmark/src/source.rs b/crates/markraft-commonmark/src/source.rs
+index 397bdb7..fc9b89e 100644
+--- a/crates/markraft-commonmark/src/source.rs
++++ b/crates/markraft-commonmark/src/source.rs
+@@ -141,6 +141,13 @@ impl SourceDocument {
+             || old.len() < 64
+             || old.len() != new.len()
+             || old.len() != self.blocks.len()
++            || old
++                .iter()
++                .zip(new)
++                .filter(|(a, b)| !a.ptr_eq(b))
++                .take(64)
++                .count()
++                < 64
+             || document == &self.document
+             || old.iter().zip(new).any(|(a, b)| !same_shape(schema, a, b))
+             || !crate::textblock::definition_candidates(schema, &self.document).is_empty()
+@@ -1111,6 +1118,14 @@ pub struct SourceTrack {
+     /// The file as last written; `None` while that is the file read, so a
+     /// note never edited holds one copy of its text.
+     current: std::sync::Mutex<Option<std::sync::Arc<SourceDocument>>>,
++    prepared: std::sync::Mutex<Option<PreparedSource>>,
++}
++#[derive(Debug)]
++struct PreparedSource {
++    baseline: SourceSnapshot,
++    before: Node,
++    after: Node,
++    next: Option<std::sync::Arc<SourceDocument>>,
+ }
+ 
+ /// An immutable source baseline captured independently of subsequent edits.
+@@ -1140,6 +1155,7 @@ impl SourceTrack {
+         Self {
+             origin: std::sync::Arc::new(origin),
+             current: std::sync::Mutex::new(None),
++            prepared: std::sync::Mutex::new(None),
+         }
+     }
+ 
+@@ -1167,6 +1183,40 @@ impl SourceTrack {
+         self.write_changed(schema, document, None)
+     }
+ 
++    /// Validate a background candidate without publishing it. The normal guard
++    /// may reuse this result only for this exact chain and unchanged baseline.
++    pub fn prepare_transactions(
++        &self,
++        schema: &Schema,
++        transactions: &[Transaction],
++    ) -> Result<(), SourceError> {
++        let Some(first) = transactions.first() else {
++            return Ok(());
++        };
++        let baseline = self.snapshot();
++        let scratch = Self {
++            origin: baseline.origin.clone(),
++            current: std::sync::Mutex::new(baseline.current.clone()),
++            prepared: std::sync::Mutex::new(None),
++        };
++        scratch.apply_transactions(schema, transactions)?;
++        let candidate = PreparedSource {
++            baseline,
++            before: first.start_state().doc().clone(),
++            after: transactions
++                .last()
++                .expect("nonempty chain")
++                .new_doc()
++                .clone(),
++            next: scratch
++                .current
++                .into_inner()
++                .unwrap_or_else(|e| e.into_inner()),
++        };
++        *self.prepared.lock().unwrap_or_else(|e| e.into_inner()) = Some(candidate);
++        Ok(())
++    }
++
+     /// Accept a complete transaction chain, advancing source only after its
+     /// final document can be written. Intermediate appender states are not saved.
+     /// When the current source matches the chain's starting document, token
+@@ -1190,6 +1240,27 @@ impl SourceTrack {
+             .last()
+             .expect("nonempty transaction chain")
+             .new_doc();
++        if let Some(candidate) = self
++            .prepared
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .take()
++        {
++            let mut current = self.current.lock().unwrap_or_else(|e| e.into_inner());
++            let same = match (&*current, &candidate.baseline.current) {
++                (None, None) => true,
++                (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
++                _ => false,
++            };
++            if same
++                && std::sync::Arc::ptr_eq(&self.origin, &candidate.baseline.origin)
++                && candidate.before.ptr_eq(first.start_state().doc())
++                && candidate.after.ptr_eq(document)
++            {
++                *current = candidate.next;
++                return Ok(());
++            }
++        }
+         let changes = transactions
+             .iter()
+             .skip(1)
+@@ -2711,6 +2782,55 @@ mod tests {
+     use super::SourceDocument;
+     use crate::commonmark_schema;
+ 
++    #[test]
++    fn prepared_source_is_unpublished_until_the_exact_candidate_is_accepted() {
++        use markraft_core::{
++            Change, EditorState, EditorStateConfig, Fragment, Slice, TransactionSpec,
++        };
++        let schema = commonmark_schema();
++        let origin = SourceDocument::parse(&schema, "alpha\n").unwrap();
++        let state = EditorState::create(
++            EditorStateConfig::new(schema.clone()).doc(origin.document().clone()),
++        )
++        .unwrap();
++        let edit = |word: &str| {
++            state
++                .update_with_appended([TransactionSpec::new().changes([Change::replace(
++                    1,
++                    6,
++                    Slice::from_fragment(Fragment::from_node(schema.text(word))),
++                )])])
++                .unwrap()
++        };
++        let track = super::SourceTrack::new(origin);
++        let prepared = edit("beta");
++        track.prepare_transactions(&schema, &prepared).unwrap();
++        assert!(
++            track.snapshot().current.is_none(),
++            "preparation cannot publish source"
++        );
++        assert_eq!(track.save(&schema, state.doc()).unwrap(), "alpha\n");
++        track.apply_transactions(&schema, &prepared).unwrap();
++        assert_eq!(
++            track
++                .save(&schema, prepared.last().unwrap().new_doc())
++                .unwrap(),
++            "beta\n"
++        );
++        assert!(track.prepared.lock().unwrap().is_none());
++        assert_eq!(track.write(&schema, state.doc()).unwrap(), "alpha\n");
++        track.prepare_transactions(&schema, &prepared).unwrap();
++        let other = edit("gamma");
++        track.apply_transactions(&schema, &other).unwrap();
++        assert_eq!(
++            track
++                .save(&schema, other.last().unwrap().new_doc())
++                .unwrap(),
++            "gamma\n",
++            "a different candidate cannot use cached source"
++        );
++    }
++
+     #[test]
+     fn batched_source_preserves_bytes_and_matches_whole_parsing_at_every_boundary() {
+         let schema = commonmark_schema();
+diff --git a/crates/markraft-core/src/state/mod.rs b/crates/markraft-core/src/state/mod.rs
+index 44503e8..3931e4d 100644
+--- a/crates/markraft-core/src/state/mod.rs
++++ b/crates/markraft-core/src/state/mod.rs
+@@ -293,6 +293,11 @@ impl EditorState {
+             .unwrap_or_else(std::sync::PoisonError::into_inner)
+     }
+ 
++    /// Whether two handles describe the exact same immutable editing state.
++    pub fn ptr_eq(&self, other: &Self) -> bool {
++        Arc::ptr_eq(&self.0, &other.0)
++    }
++
+     /// The schema every document in this state belongs to.
+     pub fn schema(&self) -> &Schema {
+         &self.0.schema
+diff --git a/crates/markraft-gpui/src/find.rs b/crates/markraft-gpui/src/find.rs
+index 0fc035b..f84eb7c 100644
+--- a/crates/markraft-gpui/src/find.rs
++++ b/crates/markraft-gpui/src/find.rs
+@@ -64,6 +64,8 @@ pub(crate) struct Find {
+     current: Option<usize>,
+     cursor_mode: bool,
+     preview: Option<Preview>,
++    /// Results supplied by the host; edits invalidate them without searching.
++    managed: bool,
+ }
+ 
+ /// A non-recursive snapshot of the state to restore on cancellation. Positions
+@@ -150,12 +152,17 @@ pub(crate) fn apply(
+             }
+         }
+         Command::Results { query, hits } => {
+-            let hits = if query.is_empty() { Vec::new() } else { hits.clone() };
++            let hits = if query.is_empty() {
++                Vec::new()
++            } else {
++                hits.clone()
++            };
+             let current = place(&hits, caret_of(state));
+             Find {
+                 query: query.clone(),
+                 hits,
+                 current,
++                managed: true,
+                 ..Find::default()
+             }
+         }
+@@ -183,6 +190,7 @@ pub(crate) fn apply(
+                 current,
+                 cursor_mode: true,
+                 preview: previous.preview.clone(),
++                managed: false,
+             }
+         }
+         Command::AcceptPreview => Find {
+@@ -205,6 +213,7 @@ pub(crate) fn apply(
+                 current,
+                 cursor_mode: preview.cursor_mode,
+                 preview: None,
++                managed: false,
+             }
+         }
+         Command::FromCursor { query, forward } => {
+@@ -218,6 +227,7 @@ pub(crate) fn apply(
+                 current,
+                 cursor_mode: true,
+                 preview: previous.preview.clone(),
++                managed: false,
+             }
+         }
+     }
+@@ -250,6 +260,13 @@ fn update(previous: &Find, transaction: &Transaction, types: &DocTypes) -> Find
+     {
+         return apply(previous, transaction.start_state(), types, command);
+     }
++    if transaction.doc_changed() && previous.managed {
++        return Find {
++            query: previous.query.clone(),
++            managed: true,
++            ..Find::default()
++        };
++    }
+     if transaction.doc_changed() && (!previous.query.is_empty() || previous.has_preview()) {
+         return follow(previous, transaction, types);
+     }
+@@ -287,6 +304,7 @@ fn follow(previous: &Find, transaction: &Transaction, types: &DocTypes) -> Find
+         hits,
+         current,
+         cursor_mode: previous.cursor_mode,
++        managed: false,
+         preview: previous.preview.as_ref().map(|preview| Preview {
+             selection: preview.selection.map(
+                 transaction.start_state().schema(),
+diff --git a/crates/markraft-gpui/src/lib.rs b/crates/markraft-gpui/src/lib.rs
+index 9f0a99d..04575be 100644
+--- a/crates/markraft-gpui/src/lib.rs
++++ b/crates/markraft-gpui/src/lib.rs
+@@ -582,6 +582,43 @@ fn apply_guarded_transactions_with_groups(
+     Ok(transactions)
+ }
+ 
++/// An immutable editing snapshot that may be prepared on a background thread.
++pub struct EditPreparation {
++    state: EditorState,
++    depth: usize,
++}
++/// A completed candidate. Publishing refuses if the editor changed meanwhile.
++pub struct PreparedEdit {
++    start: EditorState,
++    depth: usize,
++    transactions: Vec<Transaction>,
++}
++impl EditPreparation {
++    /// Prepare one isolated host edit, clearing Find without another search.
++    pub fn prepare(self, spec: TransactionSpec) -> Result<PreparedEdit, EditRejection> {
++        let mut state = self.state.clone();
++        let spec = spec.effect(find::effect(find::Command::Query(String::new())));
++        let transactions = apply_guarded_transactions_with_groups(
++            &mut state,
++            [spec],
++            None,
++            None,
++            Some(self.depth),
++        )?;
++        Ok(PreparedEdit {
++            start: self.state,
++            depth: self.depth,
++            transactions,
++        })
++    }
++}
++impl PreparedEdit {
++    /// The complete candidate chain, for a host's background source preflight.
++    pub fn transactions(&self) -> &[Transaction] {
++        &self.transactions
++    }
++}
++
+ /// Where a vertical move goes; see [`EditorView::vertical_target`].
+ pub(crate) enum VerticalMove {
+     /// A block-edge rule takes over: the edit that leaves a code block, a
+@@ -1531,6 +1568,11 @@ impl EditorView {
+                 return None;
+             }
+         };
++        self.did_apply(&transactions);
++        Some(transactions)
++    }
++
++    fn did_apply(&mut self, transactions: &[Transaction]) {
+         self.context_target_bookmark = self
+             .context_target_bookmark
+             .take()
+@@ -1559,7 +1601,6 @@ impl EditorView {
+             });
+         }
+         self.sync_document_analysis();
+-        Some(transactions)
+     }
+ 
+     /// The editing funnel: apply, publish and tell the extensions.
+@@ -1589,6 +1630,16 @@ impl EditorView {
+     ) -> Option<bool> {
+         let composing = self.is_composing();
+         let transactions = self.apply_with_isolation(specs, isolated_depth)?;
++        self.finish_edit(transactions, discarding, composing, cx)
++    }
++
++    fn finish_edit(
++        &mut self,
++        transactions: Vec<Transaction>,
++        discarding: bool,
++        composing: bool,
++        cx: &mut Context<Self>,
++    ) -> Option<bool> {
+         let changed = transactions.iter().any(Transaction::doc_changed);
+         self.caret.moved_by_edit();
+         if changed || composing != self.is_composing() {
+@@ -1630,6 +1681,52 @@ impl EditorView {
+         }
+     }
+ 
++    /// Freeze the current state for background preparation of a host edit.
++    pub fn prepare_edit(&self) -> EditPreparation {
++        EditPreparation {
++            state: self.state.clone(),
++            depth: self.undo_group_depth,
++        }
++    }
++
++    /// Whether every editing state still matches a prepared candidate.
++    pub fn prepared_is_current(&self, prepared: &PreparedEdit) -> bool {
++        self.state.ptr_eq(&prepared.start) && self.undo_group_depth == prepared.depth
++    }
++
++    /// Publish a prepared edit through the normal guards and event funnel.
++    /// Selection, composition, history and content must all still match.
++    pub fn dispatch_prepared(&mut self, prepared: PreparedEdit, cx: &mut Context<Self>) -> bool {
++        if !self.prepared_is_current(&prepared) {
++            self.edit_error = Some(EditRejection::Protected(
++                "The note changed. Try again.".into(),
++            ));
++            return false;
++        }
++        let Some(last) = prepared.transactions.last() else {
++            return false;
++        };
++        let next = last.state().clone();
++        let result = self
++            .document_guard
++            .as_ref()
++            .map_or(Ok(()), |guard| guard(last.new_doc()))
++            .and_then(|()| {
++                self.transaction_guard
++                    .as_ref()
++                    .map_or(Ok(()), |guard| guard(&prepared.transactions))
++            });
++        if let Err(error) = result {
++            self.edit_error = Some(error);
++            return false;
++        }
++        let composing = self.is_composing();
++        self.state = next;
++        self.did_apply(&prepared.transactions);
++        self.finish_edit(prepared.transactions, false, composing, cx)
++            .unwrap_or(false)
++    }
++
+     /// Apply specs the host built itself.
+     pub fn dispatch(
+         &mut self,

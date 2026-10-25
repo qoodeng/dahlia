@@ -1,0 +1,5 @@
+# Sparkle EdDSA public key (base64, one line). Packaging refuses to run while this has no key.
+# One-time setup, on the Mac that builds releases (see RELEASING.md):
+#   .build/sparkle/<version>/payload/bin/generate_keys
+# then add the public key it prints on its own line below these comments and commit it.
+# The private key stays in the login keychain; never commit it.

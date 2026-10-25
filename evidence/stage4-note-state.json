@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "notes": [
+    {
+      "id": "primary",
+      "title": "Markdown, on your desktop",
+      "open": true,
+      "frame": {
+        "x": 120.0,
+        "y": 120.0,
+        "width": 360.0,
+        "height": 350.0
+      },
+      "expanded_height": 350.0,
+      "collapsed": false,
+      "floating": false,
+      "style": {
+        "appearance": "glass",
+        "color": 1,
+        "translucent": false,
+        "reading_size": 12.0
+      },
+      "state": "active",
+      "state_changed_at": 0,
+      "source_base": null
+    },
+    {
+      "id": "7a11700e-27f7-4acd-b49e-fbd3c4209e1e",
+      "title": "Second note — independent history.",
+      "open": false,
+      "frame": {
+        "x": 0.0,
+        "y": 148.0,
+        "width": 1470.0,
+        "height": 350.0
+      },
+      "expanded_height": 350.0,
+      "collapsed": false,
+      "floating": true,
+      "style": {
+        "appearance": "classic",
+        "color": 0,
+        "translucent": false,
+        "reading_size": 12.0
+      },
+      "state": "active",
+      "state_changed_at": 0,
+      "source_base": null
+    },
+    {
+      "id": "a4192e14-c86a-4130-9272-f63205643aea",
+      "title": "Native typography",
+      "open": true,
+      "frame": {
+        "x": 148.0,
+        "y": 148.0,
+        "width": 360.0,
+        "height": 350.0
+      },
+      "expanded_height": 350.0,
+      "collapsed": false,
+      "floating": false,
+      "style": {
+        "appearance": "glass",
+        "color": 0,
+        "translucent": false,
+        "reading_size": 12.0
+      },
+      "state": "active",
+      "state_changed_at": 1791994996128,
+      "source_base": null
+    },
+    {
+      "id": "61fe0ee9-d347-4e21-97ed-e3c4b117077b",
+      "title": "Imported source",
+      "open": false,
+      "frame": {
+        "x": 120.0,
+        "y": 120.0,
+        "width": 360.0,
+        "height": 350.0
+      },
+      "expanded_height": 350.0,
+      "collapsed": false,
+      "floating": false,
+      "style": {
+        "appearance": "glass",
+        "color": 0,
+        "translucent": false,
+        "reading_size": 12.0
+      },
+      "state": "archived",
+      "state_changed_at": 1791995108675,
+      "source_base": "/Users/christianstephens/Documents/Codex/2026-10-14/task-3/evidence/stage4-transfer"
+    }
+  ],
+  "defaults": {
+    "style": {
+      "appearance": "glass",
+      "color": 0,
+      "translucent": false,
+      "reading_size": 12.0
+    },
+    "width": 360.0,
+    "height": 350.0,
+    "floating": false
+  },
+  "glass_tint": 0.25
+}

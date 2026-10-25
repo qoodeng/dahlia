@@ -1,0 +1,119 @@
+diff --git a/crates/markraft-gpui/src/lib.rs b/crates/markraft-gpui/src/lib.rs
+index 04575be..a461e58 100644
+--- a/crates/markraft-gpui/src/lib.rs
++++ b/crates/markraft-gpui/src/lib.rs
+@@ -426,6 +426,42 @@ impl Setup {
+         self.doc = Some(doc);
+         self
+     }
++
++    /// Build immutable document state and analysis before creating the native view.
++    /// This owns no window or focus state and may run on a background executor.
++    pub fn prepare(self) -> PreparedSetup {
++        let Self {
++            schema,
++            types,
++            extensions,
++            kind,
++            doc,
++        } = self;
++        let (state, find) = build_state(&schema, &extensions, doc, &types);
++        let analysis = markraft_core::kind::analysis::DocumentAnalysis::new(
++            projection_of(&state),
++            &types,
++            Default::default(),
++        );
++        PreparedSetup {
++            types,
++            extensions,
++            kind,
++            state,
++            find,
++            analysis,
++        }
++    }
++}
++
++/// A prepared immutable document; installing it creates only native view state.
++pub struct PreparedSetup {
++    types: DocTypes,
++    extensions: markraft_core::Extension,
++    kind: Arc<dyn DocumentKind>,
++    state: EditorState,
++    find: markraft_core::StateField<find::Find>,
++    analysis: markraft_core::kind::analysis::DocumentAnalysis,
+ }
+ 
+ /// Why an edit did not reach the document. The editor only keeps the cases apart;
+@@ -776,21 +812,20 @@ fn build_state(
+ 
+ impl EditorView {
+     pub fn new(setup: Setup, cx: &mut Context<Self>) -> Self {
+-        let Setup {
+-            schema,
++        Self::from_prepared(setup.prepare(), cx)
++    }
++
++    /// Attach a prepared document without rebuilding its projection on the UI thread.
++    pub fn from_prepared(setup: PreparedSetup, cx: &mut Context<Self>) -> Self {
++        let PreparedSetup {
+             types,
+             extensions,
+             kind,
+-            doc,
++            state,
++            find,
++            analysis,
+         } = setup;
+-        let (state, find) = build_state(&schema, &extensions, doc, &types);
+-        let projection = projection_of(&state);
+         let shaping = shaping::Shaping::default();
+-        let analysis = markraft_core::kind::analysis::DocumentAnalysis::new(
+-            projection.clone(),
+-            &types,
+-            Default::default(),
+-        );
+         Self {
+             document_guard: None,
+             transaction_guard: None,
+@@ -3725,3 +3760,40 @@ mod document_guard_tests {
+         assert_eq!(undo_depth(&state), 0);
+     }
+ }
++
++#[cfg(test)]
++mod prepared_setup_tests {
++    use super::{EditorView, Setup};
++    use gpui::AppContext;
++
++    #[gpui::test]
++    fn background_setup_installs_the_exact_prepared_state(cx: &mut gpui::TestAppContext) {
++        let prepared = std::thread::spawn(|| {
++            let schema = markraft_commonmark::commonmark_schema();
++            let source =
++                markraft_commonmark::SourceDocument::parse(&schema, "# Ready\n\nA **note**.\n")
++                    .unwrap();
++            Setup::new(schema.clone())
++                .types(markraft_core::kind::DocTypes::from_schema_names(
++                    &schema,
++                    &markraft_commonmark::commonmark_doc_type_names(),
++                ))
++                .extensions(markraft_commonmark::commonmark_extensions(&schema))
++                .doc(source.document().clone())
++                .prepare()
++        })
++        .join()
++        .unwrap();
++        let state = prepared.state.clone();
++        let projection = markraft_core::projection::projection_of(&state);
++        let editor = cx.new(|cx| EditorView::from_prepared(prepared, cx));
++        editor.read_with(cx, |editor, _| {
++            assert!(editor.state().ptr_eq(&state));
++            assert!(std::sync::Arc::ptr_eq(
++                &markraft_core::projection::projection_of(editor.state()),
++                &projection
++            ));
++            assert_eq!(editor.state().doc(), state.doc());
++        });
++    }
++}

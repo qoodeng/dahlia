@@ -1,0 +1,6 @@
+{
+  "method": "assetutil --info on installed Stickies Assets.car",
+  "entries_inspected": 79,
+  "window_border_assets": [],
+  "result": "Catalog entries are icon assets; no usable note exterior-border definition was found."
+}
