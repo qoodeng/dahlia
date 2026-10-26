@@ -1,0 +1,68 @@
+name: Factory refresh
+
+# After main moves, keeps open factory PRs mergeable. A PR that now conflicts is rebased onto
+# main and force-pushed with FACTORY_TOKEN, which re-runs its CI. If the rebase itself conflicts,
+# the bead is run again from the new main (factory.yml), and that run updates the same PR.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: write
+
+concurrency:
+  group: factory-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: [self-hosted, dahlia-factory]
+    env:
+      PATH: /Users/christianstephens/.local/bin:/opt/homebrew/bin:/usr/bin:/bin
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+      FACTORY_BEADS_REPO: /Users/christianstephens/Projects/dahlia
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Rebase or re-run conflicting factory PRs
+        run: |
+          auth=$(printf 'x-access-token:%s' "$FACTORY_TOKEN" | base64)
+          git fetch -q origin '+refs/heads/factory/*:refs/remotes/origin/factory/*'
+          gh pr list --state open --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("factory/")) | "\(.number) \(.headRefName)"' |
+          while read -r number branch; do
+            # GitHub computes mergeability lazily; ask until it has an answer.
+            state=UNKNOWN
+            for _ in 1 2 3 4 5 6; do
+              state=$(gh pr view "$number" --json mergeable --jq .mergeable)
+              [ "$state" != UNKNOWN ] && break
+              sleep 5
+            done
+            echo "PR #$number ($branch): $state"
+            [ "$state" = CONFLICTING ] || continue
+
+            git switch -q -C "$branch" "origin/$branch"
+            if git -c user.name="Dahlia Factory" -c user.email="84674359+qoodeng@users.noreply.github.com" \
+                rebase -q origin/main; then
+              git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+                push -q --force-with-lease "https://github.com/$GH_REPO.git" "HEAD:refs/heads/$branch"
+              echo "PR #$number rebased onto main."
+            else
+              git rebase --abort
+              bead=${branch#factory/}
+              json=$(cd "$FACTORY_BEADS_REPO" && bd show "$bead" --json) || { echo "$bead is not a bead; skipped."; continue; }
+              gh workflow run factory.yml -f bead="$bead" \
+                -f title="$(jq -r '.[0].title' <<<"$json")" -f goal="$(jq -r '.[0].description' <<<"$json")"
+              (cd "$FACTORY_BEADS_REPO" && bd comment "$bead" "PR #$number conflicted with main; re-running the bead from the new main.") || true
+              echo "PR #$number conflicts; re-running $bead."
+            fi
+            git switch -q --detach origin/main
+          done

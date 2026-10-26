@@ -60,9 +60,19 @@ body="$RUNNER_TEMP/factory-$run_id-body.md"
     head -c 50000 "$workspace/.factory/review.md" 2>/dev/null || echo "No review notes."
 } >"$body"
 
-url=$(GH_TOKEN="$FACTORY_TOKEN" gh pr create --repo "$GITHUB_REPOSITORY" --base "${DEFAULT_BRANCH:?}" \
-    --head "$branch" --title "$title ($bead)" --body-file "$body" --label "$label")
+# A bead re-run (factory-refresh.yml, after a conflict) updates its existing PR instead of
+# opening another.
+export GH_TOKEN="$FACTORY_TOKEN"
+url=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json url --jq '.[0].url // empty')
+if [ -n "$url" ]; then
+    gh pr edit "$url" --repo "$GITHUB_REPOSITORY" --body-file "$body" \
+        --remove-label factory-automerge --remove-label needs-visual-review >/dev/null
+    gh pr edit "$url" --repo "$GITHUB_REPOSITORY" --add-label "$label" >/dev/null
+else
+    url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base "${DEFAULT_BRANCH:?}" \
+        --head "$branch" --title "$title ($bead)" --body-file "$body" --label "$label")
+fi
 if [ "$label" = "factory-automerge" ]; then
-    GH_TOKEN="$FACTORY_TOKEN" gh pr merge "$branch" --repo "$GITHUB_REPOSITORY" --auto --squash
+    gh pr merge "$branch" --repo "$GITHUB_REPOSITORY" --auto --squash
 fi
 echo "$url"
