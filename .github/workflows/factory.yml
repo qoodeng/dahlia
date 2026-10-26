@@ -71,7 +71,9 @@ jobs:
 
       - name: Open the pull request
         run: |
+          set -o pipefail
           url=$(bash .fabro/workflows/ship/open-pr.sh "${{ steps.run.outputs.run_id }}" "$BEAD" | tail -1)
+          [ -n "$url" ]
           (cd "$FACTORY_BEADS_REPO" && bd comment "$BEAD" "Pull request opened: $url") || true
 
       # A cancelled or timed-out job must not leave its Fabro run working with no one to collect it.
