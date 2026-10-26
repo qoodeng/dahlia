@@ -10,6 +10,8 @@
 # unapproved. With the owner's token the PR starts CI like any other, and non-visual changes
 # get GitHub auto-merge, which merges once the required checks pass. factory-close.yml closes
 # the bead when the PR merges.
+# FACTORY_KEEP_PR=1 (factory-resolve.yml, after resolving conflicts) keeps an existing PR's body
+# and its labels, including your approval.
 set -euo pipefail
 
 run_id="$1"
@@ -47,6 +49,20 @@ git -c user.name="Dahlia Factory" -c user.email="84674359+qoodeng@users.noreply.
 git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
     push --force -q https://github.com/"$GITHUB_REPOSITORY".git "HEAD:refs/heads/$branch"
 
+# A bead re-run (factory-refresh.yml, after a conflict) updates its existing PR instead of
+# opening another.
+export GH_TOKEN="$FACTORY_TOKEN"
+existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json url --jq '.[0].url // empty')
+if [ -n "${FACTORY_KEEP_PR:-}" ] && [ -n "$existing" ]; then
+    # Approved PRs keep merging themselves once CI passes on the new head.
+    if gh pr view "$existing" --repo "$GITHUB_REPOSITORY" --json labels \
+        --jq '.labels | map(.name) | index("factory-automerge")' | grep -q '[0-9]'; then
+        gh pr merge "$existing" --repo "$GITHUB_REPOSITORY" --auto --squash
+    fi
+    echo "$existing"
+    exit 0
+fi
+
 # A missing verdict counts as visual, so nothing merges unseen.
 visual=$(tr -d '[:space:]' <"$workspace/.factory/visual" 2>/dev/null || true)
 if [ "$visual" = "no" ]; then
@@ -68,10 +84,7 @@ body="$RUNNER_TEMP/factory-$run_id-body.md"
     head -c 50000 "$workspace/.factory/review.md" 2>/dev/null || echo "No review notes."
 } >"$body"
 
-# A bead re-run (factory-refresh.yml, after a conflict) updates its existing PR instead of
-# opening another.
-export GH_TOKEN="$FACTORY_TOKEN"
-url=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json url --jq '.[0].url // empty')
+url="$existing"
 if [ -n "$url" ]; then
     gh pr edit "$url" --repo "$GITHUB_REPOSITORY" --body-file "$body" \
         --remove-label factory-automerge --remove-label needs-visual-review >/dev/null

@@ -1,0 +1,119 @@
+name: Factory resolve
+
+# Makes a factory PR that conflicts with main apply again, without re-running its whole bead.
+# factory-refresh.yml dispatches this when a PR's rebase onto main stops on conflicts. The job
+# commits the PR's change applied onto the latest main with the conflict markers left in, and
+# Fabro's resolve workflow (Codex) resolves them and keeps the checks passing. open-pr.sh then
+# pushes the result to the same branch, keeping the PR's body, labels and any approval. If the
+# resolve fails, the bead is re-run from scratch (factory.yml).
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+      branch:
+        description: Its branch (factory/<bead-id>)
+        required: true
+      bead:
+        description: Its bead id
+        required: true
+
+permissions:
+  contents: read
+  # Re-run the bead (factory.yml) when the resolve fails.
+  actions: write
+
+# Shared with factory.yml, so a bead never has a resolve and a run going at once.
+concurrency:
+  group: factory-${{ inputs.bead }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    if: github.actor == github.repository_owner || github.actor == 'github-actions[bot]'
+    runs-on: [self-hosted, dahlia-factory]
+    timeout-minutes: 120
+    env:
+      PATH: /Users/christianstephens/.fabro/bin:/Users/christianstephens/.cargo/bin:/Users/christianstephens/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+      FACTORY_BEADS_REPO: /Users/christianstephens/Projects/dahlia
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ inputs.pr }}
+      BRANCH: ${{ inputs.branch }}
+      BEAD: ${{ inputs.bead }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Apply the PR onto main, conflicts and all
+        id: apply
+        run: |
+          auth=$(printf 'x-access-token:%s' "$FACTORY_TOKEN" | base64)
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+            fetch -q "https://github.com/$GH_REPO.git" "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+          main=$(git rev-parse HEAD)
+          echo "main=$main" >>"$GITHUB_OUTPUT"
+          git diff --binary "$(git merge-base HEAD "origin/$BRANCH")" "origin/$BRANCH" \
+            -- . ':(exclude).factory' ':(exclude).fabro' >"$RUNNER_TEMP/pr.patch"
+          git apply --3way "$RUNNER_TEMP/pr.patch" || true
+          conflicts=$(git diff --name-only --diff-filter=U)
+          git add -A
+          git -c user.name="Dahlia Factory" -c user.email="84674359+qoodeng@users.noreply.github.com" \
+            commit -q -m "Apply PR #$PR onto main, with conflicts"
+          json=$(cd "$FACTORY_BEADS_REPO" && bd show "$BEAD" --json)
+          {
+            echo "Pull request #$PR ($(jq -r '.[0].title' <<<"$json")) was built on an older main and"
+            echo "now conflicts with it. This commit applies its change onto the latest main; the files"
+            echo "below hold conflict markers (<<<<<<< ours is main, >>>>>>> theirs is the pull request)."
+            echo
+            echo "${conflicts:-(git reported none; check with git grep for markers anyway)}"
+            echo
+            echo "What the pull request was asked to do:"
+            jq -r '.[0].description' <<<"$json"
+          } >"$RUNNER_TEMP/goal.md"
+          echo "Conflicted files: ${conflicts:-none}"
+
+      - name: Resolve with Fabro
+        id: run
+        run: |
+          run_id=$(fabro run .fabro/workflows/resolve/workflow.toml --goal-file "$RUNNER_TEMP/goal.md" \
+            --environment local --label "bead=$BEAD" --label "resolve=$PR" --detach | tail -1)
+          echo "run_id=$run_id" >>"$GITHUB_OUTPUT"
+          fabro wait "$run_id" || true
+          status=$(fabro inspect "$run_id" | jq -r '.[0].status.kind')
+          echo "Run $run_id finished: $status"
+          [ "$status" = "succeeded" ]
+
+      - name: Push the resolved change to the PR
+        run: |
+          set -o pipefail
+          git reset -q --hard "${{ steps.apply.outputs.main }}"
+          export ISSUE_TITLE=$(cd "$FACTORY_BEADS_REPO" && bd show "$BEAD" --json | jq -r '.[0].title')
+          url=$(FACTORY_KEEP_PR=1 bash .fabro/workflows/ship/open-pr.sh "${{ steps.run.outputs.run_id }}" "$BEAD" | tail -1)
+          [ -n "$url" ]
+          (cd "$FACTORY_BEADS_REPO" && bd comment "$BEAD" "PR #$PR conflicted with main; Fabro run ${{ steps.run.outputs.run_id }} resolved it.") || true
+
+      - name: Stop the Fabro run
+        if: cancelled() && steps.run.outputs.run_id != ''
+        run: fabro rm --force "${{ steps.run.outputs.run_id }}" || true
+
+      - name: Finish
+        if: success()
+        run: cd "$FACTORY_BEADS_REPO" && bd update "$BEAD" --remove-label factory-refreshing >/dev/null
+
+      # The bead keeps factory-refreshing until that run ends (factory.yml removes it).
+      - name: Re-run the bead when the resolve fails
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          json=$(cd "$FACTORY_BEADS_REPO" && bd show "$BEAD" --json)
+          gh workflow run factory.yml -f bead="$BEAD" \
+            -f title="$(jq -r '.[0].title' <<<"$json")" -f goal="$(jq -r '.[0].description' <<<"$json")"
+          (cd "$FACTORY_BEADS_REPO" && bd comment "$BEAD" "Resolving PR #$PR's conflicts failed; re-running the bead from the new main.") || true

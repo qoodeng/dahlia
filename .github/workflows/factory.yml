@@ -87,3 +87,8 @@ jobs:
           cd "$FACTORY_BEADS_REPO"
           bd update "$BEAD" --status open --add-label factory-failed --remove-label factory
           bd comment "$BEAD" "Factory run ${{ steps.run.outputs.run_id }} did not produce a pull request after 2 attempts. Details: fabro inspect ${{ steps.run.outputs.run_id }}. Retry with: factory start $BEAD"
+
+      # A re-run after a failed conflict resolve (factory-resolve.yml) is over: refreshable again.
+      - name: Clear the refresh flag
+        if: always()
+        run: cd "$FACTORY_BEADS_REPO" && bd update "$BEAD" --remove-label factory-refreshing >/dev/null || true
