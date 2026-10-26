@@ -1,35 +1,42 @@
 name: Factory
 
-# Labelling an issue `factory` runs Fabro's ship workflow on this Mac's dahlia-factory runner
-# and turns the result into a pull request. GitHub hands the job over within seconds of the
-# label; there is no queue or timer of our own.
+# `factory start <bead>` (~/.local/bin/factory) dispatches this with the bead's id, title and
+# description. It runs Fabro's ship workflow on this Mac's dahlia-factory runner and turns the
+# result into a pull request. Beads is the backlog; GitHub only holds code, PRs and CI.
 on:
-  issues:
-    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      bead:
+        description: Bead id (e.g. dahlia-a3f2)
+        required: true
+      title:
+        description: Bead title, used as the PR title
+        required: true
+      goal:
+        description: Bead description, the spec the agents build from
+        required: true
 
-# The job token only comments on and labels the issue; the PR branch and PR use FACTORY_TOKEN.
 permissions:
   contents: read
-  issues: write
 
 concurrency:
-  group: factory-issue-${{ github.event.issue.number }}
+  group: factory-${{ inputs.bead }}
   cancel-in-progress: false
 
 jobs:
   ship:
-    # Only the owner's label starts a run: the repository is public, issue text becomes an
-    # agent's instructions, and this job runs on the owner's Mac.
-    if: github.event.label.name == 'factory' && github.event.sender.login == github.repository_owner
+    # Only the owner starts runs: the bead becomes an agent's instructions on the owner's Mac.
+    if: github.actor == github.repository_owner
     runs-on: [self-hosted, dahlia-factory]
     timeout-minutes: 240
     env:
       PATH: /Users/christianstephens/.fabro/bin:/Users/christianstephens/.cargo/bin:/Users/christianstephens/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
-      GH_TOKEN: ${{ github.token }}
       FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
-      ISSUE: ${{ github.event.issue.number }}
-      ISSUE_TITLE: ${{ github.event.issue.title }}
-      ISSUE_BODY: ${{ github.event.issue.body }}
+      # The owner's checkout, whose .beads database the run reports to.
+      FACTORY_BEADS_REPO: /Users/christianstephens/Projects/dahlia
+      BEAD: ${{ inputs.bead }}
+      ISSUE_TITLE: ${{ inputs.title }}
+      GOAL: ${{ inputs.goal }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       # Full history: Fabro clones this checkout for the run's workspace.
@@ -39,25 +46,29 @@ jobs:
           fetch-depth: 0
 
       - name: Write the goal
-        run: printf '%s\n\n%s\n' "$ISSUE_TITLE" "$ISSUE_BODY" >"$RUNNER_TEMP/goal.md"
+        run: printf '%s\n\n%s\n' "$ISSUE_TITLE" "$GOAL" >"$RUNNER_TEMP/goal.md"
 
       - name: Run the ship workflow
         id: run
         run: |
           run_id=$(fabro run .fabro/workflows/ship/workflow.toml --goal-file "$RUNNER_TEMP/goal.md" \
-            --environment local --label "issue=$ISSUE" --detach | tail -1)
+            --environment local --label "bead=$BEAD" --detach | tail -1)
           echo "run_id=$run_id" >>"$GITHUB_OUTPUT"
-          gh issue comment "$ISSUE" --body "Factory run \`$run_id\` started."
+          # Bead updates are best-effort: only the run itself decides success.
+          (cd "$FACTORY_BEADS_REPO" && bd comment "$BEAD" "Factory run $run_id started.") || true
           fabro wait "$run_id" || true
           status=$(fabro inspect "$run_id" | jq -r '.[0].status.kind')
           echo "Run $run_id finished: $status"
           [ "$status" = "succeeded" ]
 
       - name: Open the pull request
-        run: bash .fabro/workflows/ship/open-pr.sh "${{ steps.run.outputs.run_id }}" "$ISSUE"
+        run: |
+          url=$(bash .fabro/workflows/ship/open-pr.sh "${{ steps.run.outputs.run_id }}" "$BEAD" | tail -1)
+          (cd "$FACTORY_BEADS_REPO" && bd comment "$BEAD" "Pull request opened: $url") || true
 
       - name: Report a failed run
         if: failure()
         run: |
-          gh issue edit "$ISSUE" --add-label factory-failed --remove-label factory
-          gh issue comment "$ISSUE" --body "Factory run \`${{ steps.run.outputs.run_id }}\` did not produce a pull request. Details: \`fabro inspect ${{ steps.run.outputs.run_id }}\` on the Mac."
+          cd "$FACTORY_BEADS_REPO"
+          bd update "$BEAD" --status open --add-label factory-failed --remove-label factory
+          bd comment "$BEAD" "Factory run ${{ steps.run.outputs.run_id }} did not produce a pull request. Details: fabro inspect ${{ steps.run.outputs.run_id }}. Retry with: factory start $BEAD"

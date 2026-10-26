@@ -68,9 +68,12 @@ Review the change on this branch against the goal: run `git diff HEAD~..HEAD` or
 starting commit, read the changed files and tests. Check correctness, scope creep, tests that
 actually exercise the change, and that behaviour users see is unchanged unless the goal says otherwise.
 Write findings to .factory/review.md.
-Also write .factory/visual containing exactly `yes` if the change alters anything a user can see
-on screen (layout, colour, text, icons, window chrome) or any animation or motion, otherwise
-exactly `no`. When unsure, write `yes`: a visual change waits for the owner before it merges.
+Also write .factory/visual containing exactly `yes` if the change alters anything drawn in the
+app's own interface (layout, colour, interface text, icons, window chrome) or any animation or
+motion, otherwise exactly `no`. File names, saved data, logs and behaviour with no on-screen
+change are not visual. When unsure, write `yes`: a visual change waits for the owner.
+Keep the review proportionate: judge the change against the goal and the code and tests in this
+repository. Do not research outside sources or other projects; finish within about 10 minutes.
 End your reply with a JSON object: {\"context_updates\": {\"review_ok\": true}} if it is ready to merge,
 or {\"context_updates\": {\"review_ok\": false}} if anything must change."]
 

@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.event.label.name == 'factory-automerge'
       && github.event.sender.login == github.repository_owner
-      && startsWith(github.head_ref, 'factory/issue-')
+      && startsWith(github.head_ref, 'factory/')
       && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     steps:
