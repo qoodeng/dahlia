@@ -24,4 +24,9 @@ jobs:
       PR: ${{ github.event.pull_request.number }}
     steps:
       - name: Close the bead
-        run: cd "$FACTORY_BEADS_REPO" && bd close "${BEAD#factory/}" --reason "Merged in PR #$PR"
+        run: |
+          cd "$FACTORY_BEADS_REPO"
+          bead=${BEAD#factory/}
+          # Only factory runs' branches name a bead; anything else is not the factory's to close.
+          if ! bd show "$bead" >/dev/null 2>&1; then echo "$bead is not a bead; nothing to close."; exit 0; fi
+          bd close "$bead" --reason "Merged in PR #$PR"
