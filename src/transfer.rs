@@ -364,6 +364,32 @@ fn write_destination_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     written
 }
 
+fn is_windows_device_name(stem: &str) -> bool {
+    let base = stem.split('.').next().unwrap_or(stem);
+    matches!(
+        base.to_ascii_lowercase().as_str(),
+        "con" | "prn" | "aux" | "nul"
+            | "com1"
+            | "com2"
+            | "com3"
+            | "com4"
+            | "com5"
+            | "com6"
+            | "com7"
+            | "com8"
+            | "com9"
+            | "lpt1"
+            | "lpt2"
+            | "lpt3"
+            | "lpt4"
+            | "lpt5"
+            | "lpt6"
+            | "lpt7"
+            | "lpt8"
+            | "lpt9"
+    )
+}
+
 pub fn filename(title: &str) -> String {
     let stem: String = title
         .chars()
@@ -376,14 +402,18 @@ pub fn filename(title: &str) -> String {
             }
         })
         .collect();
-    format!(
-        "{}.md",
-        if stem.trim().is_empty() {
-            "Untitled"
-        } else {
-            stem.trim()
-        }
-    )
+    let trimmed = stem
+        .trim_start_matches(|c: char| c == '.' || c.is_whitespace())
+        .trim_end_matches(|c: char| c == '.' || c.is_whitespace());
+    let mut stem = if trimmed.is_empty() {
+        "Untitled".to_owned()
+    } else {
+        trimmed.to_owned()
+    };
+    if is_windows_device_name(&stem) {
+        stem.push('_');
+    }
+    format!("{stem}.md")
 }
 
 pub struct ExportSource {
@@ -872,6 +902,49 @@ mod tests {
         assert_eq!(imported[0].text, text);
         assert!(export_bundle(&destination, &sources).is_err());
         assert_eq!(fs::read_to_string(&report.files[0]).unwrap(), text);
+    }
+
+    #[test]
+    fn export_filenames_are_safe_on_macos_linux_and_windows() {
+        assert_eq!(filename(".notes"), "notes.md");
+        assert_eq!(filename("...hidden"), "hidden.md");
+        assert_eq!(filename(". notes"), "notes.md");
+
+        assert_eq!(filename("..."), "Untitled.md");
+        assert_eq!(filename("."), "Untitled.md");
+        assert_eq!(filename(" . . "), "Untitled.md");
+
+        assert_eq!(filename("notes."), "notes.md");
+        assert_eq!(filename("notes. . "), "notes.md");
+        assert_eq!(filename("end..."), "end.md");
+
+        assert_eq!(filename("CON"), "CON_.md");
+        assert_eq!(filename("con"), "con_.md");
+        assert_eq!(filename("Nul.txt"), "Nul.txt_.md");
+        assert_eq!(filename("nul.txt"), "nul.txt_.md");
+        assert_eq!(filename("COM1"), "COM1_.md");
+        assert_eq!(filename("lpt9"), "lpt9_.md");
+        assert_eq!(filename("PRN"), "PRN_.md");
+        assert_eq!(filename("aux"), "aux_.md");
+        assert_eq!(filename(" aux. "), "aux_.md");
+
+        assert_eq!(filename("CONSOLE"), "CONSOLE.md");
+        assert_eq!(filename("COM10"), "COM10.md");
+        assert_eq!(filename("COM0"), "COM0.md");
+        assert_eq!(filename("icon.txt"), "icon.txt.md");
+
+        assert_eq!(filename("Shopping list"), "Shopping list.md");
+        assert_eq!(filename("v1.2 notes"), "v1.2 notes.md");
+        assert_eq!(filename("🌸 Garden ideas"), "🌸 Garden ideas.md");
+        assert_eq!(filename("  padded  "), "padded.md");
+        assert_eq!(filename("a/b:c"), "a_b_c.md");
+        assert_eq!(filename(""), "Untitled.md");
+
+        let sixty = "a".repeat(60);
+        let sixty_one = format!("{sixty}x");
+        assert_eq!(filename(&sixty_one), format!("{sixty}.md"));
+        let emoji = "🌸".repeat(70);
+        assert_eq!(filename(&emoji), format!("{}{}.md", "🌸".repeat(59), "🌸"));
     }
 
     #[test]
