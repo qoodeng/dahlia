@@ -21,6 +21,9 @@ PATH = "/Users/christianstephens/.cargo/bin:/Users/christianstephens/.local/bin:
 # No debug info keeps each run's cold build small; the Mac has little free disk.
 CARGO_PROFILE_DEV_DEBUG = "0"
 CARGO_PROFILE_TEST_DEBUG = "0"
+# No sccache: its shared server inherits the sandbox of whichever agent starts it, and then
+# every build fails with "Operation not permitted". Each run builds fresh anyway.
+RUSTC_WRAPPER = ""
 
 # Every run, passed or failed, deletes its build output; the code stays in the workspace.
 [[run.hooks]]
