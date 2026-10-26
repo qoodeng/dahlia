@@ -12,7 +12,7 @@ digraph Ship {
             #plan      { backend: acp; }
             #implement { backend: acp; }
             #fix       { backend: acp; }
-            #review    { model: glm-5.3; provider: commandcode; }
+            #review    { model: glm-5.3-flash; provider: commandcode; }
         "
     ]
 
