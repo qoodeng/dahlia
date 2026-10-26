@@ -31,11 +31,19 @@ if [ ! -s "$patch" ]; then
     exit 3
 fi
 
-git switch -C "$branch"
-git apply --index "$patch"
+# The branch starts from the latest default branch, not the commit the run started from: main
+# moves during a run, and GitHub refuses a token without workflow access a branch whose base
+# predates a change to .github/workflows.
+auth=$(printf 'x-access-token:%s' "${FACTORY_TOKEN:?}" | base64)
+git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+    fetch -q https://github.com/"$GITHUB_REPOSITORY".git "${DEFAULT_BRANCH:?}"
+git switch -C "$branch" FETCH_HEAD
+if ! git apply --3way --index "$patch"; then
+    echo "Run $run_id's change no longer applies to $DEFAULT_BRANCH; re-run the bead." >&2
+    exit 1
+fi
 git -c user.name="Dahlia Factory" -c user.email="84674359+qoodeng@users.noreply.github.com" \
     commit -q -m "$title" -m "Bead $bead. Made by Fabro run $run_id."
-auth=$(printf 'x-access-token:%s' "${FACTORY_TOKEN:?}" | base64)
 git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
     push --force -q https://github.com/"$GITHUB_REPOSITORY".git "HEAD:refs/heads/$branch"
 
