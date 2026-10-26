@@ -2,7 +2,8 @@ name: Factory refresh
 
 # After main moves, keeps open factory PRs mergeable. A PR that now conflicts is rebased onto
 # main and force-pushed with FACTORY_TOKEN, which re-runs its CI. If the rebase itself conflicts,
-# the bead is run again from the new main (factory.yml), and that run updates the same PR.
+# factory-resolve.yml has an agent resolve the conflicts and updates the same PR. The bead carries
+# factory-refreshing until that ends, so later pushes to main do not start it again.
 on:
   push:
     branches: [main]
@@ -58,11 +59,15 @@ jobs:
             else
               git rebase --abort
               bead=${branch#factory/}
-              json=$(cd "$FACTORY_BEADS_REPO" && bd show "$bead" --json) || { echo "$bead is not a bead; skipped."; continue; }
-              gh workflow run factory.yml -f bead="$bead" \
-                -f title="$(jq -r '.[0].title' <<<"$json")" -f goal="$(jq -r '.[0].description' <<<"$json")"
-              (cd "$FACTORY_BEADS_REPO" && bd comment "$bead" "PR #$number conflicted with main; re-running the bead from the new main.") || true
-              echo "PR #$number conflicts; re-running $bead."
+              json=$(cd "$FACTORY_BEADS_REPO" && bd show "$bead" --json) || { echo "$bead is not a bead; skipped."; git switch -q --detach origin/main; continue; }
+              if jq -e '.[0].labels // [] | index("factory-refreshing")' <<<"$json" >/dev/null; then
+                echo "PR #$number conflicts; $bead is already being refreshed."
+              else
+                (cd "$FACTORY_BEADS_REPO" && bd update "$bead" --add-label factory-refreshing >/dev/null)
+                gh workflow run factory-resolve.yml -f pr="$number" -f branch="$branch" -f bead="$bead"
+                (cd "$FACTORY_BEADS_REPO" && bd comment "$bead" "PR #$number conflicts with main; resolving.") || true
+                echo "PR #$number conflicts; resolving $bead."
+              fi
             fi
             git switch -q --detach origin/main
           done

@@ -1,0 +1,54 @@
+// One factory PR that conflicts with main, made to apply to main again.
+// factory-resolve.yml commits the PR's change applied onto the latest main with conflict markers
+// left in; this run resolves them, keeps the checks passing, and the job pushes the result.
+digraph Resolve {
+    graph [
+        goal="Resolve the conflicts described in the goal file passed with --goal-file",
+        rankdir=LR,
+        max_node_visits=4,
+        model_stylesheet="
+            *        { model: deepseek-v4.1-flash; provider: commandcode; }
+            #resolve { backend: acp; }
+            #fix     { backend: acp; }
+        "
+    ]
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // Markraft is a patched submodule; a fresh clone of HEAD does not have it.
+    prepare [label="Prepare", timeout="15m", on_failure="exit", max_retries=1,
+             script="sh .fabro/workflows/ship/disk-guard.sh && sh scripts/prepare.sh && sh scripts/check-patch-drift.sh"]
+
+    // GPT-6.1 Sol through Codex on the ChatGPT plan, as ship's fix stage.
+    resolve [label="Resolve", timeout="30m", goal_gate=true, acp.command="sh .fabro/workflows/ship/acp-agent.sh codex gpt-6.1-sol", prompt="
+{{ goal }}
+
+Find every conflict with `git grep -nE '^(<<<<<<<|=======|>>>>>>>)'`. In each, keep main's code
+and the pull request's change together, as the pull request intended; change nothing else.
+Follow AGENTS.md. Then run `bash .fabro/workflows/ship/verify.sh` (give it a 15-minute timeout if
+your shell tool takes one) and make it pass. Do not weaken, skip or delete tests.
+Never edit .fabro/, .agents/ or .github/."]
+
+    markers [label="No conflict markers", shape=parallelogram, timeout="1m",
+             script="! git grep -nE '^(<<<<<<<|=======|>>>>>>>)( |$)' -- . ':(exclude)*.md'"]
+
+    verify [label="Verify", shape=parallelogram, timeout="40m",
+            script="bash .fabro/workflows/ship/verify.sh"]
+
+    fix [label="Fix", timeout="30m", max_visits=3, acp.command="sh .fabro/workflows/ship/acp-agent.sh codex gpt-6.1-sol", prompt="
+{{ goal }}
+
+The conflict resolution is not finished: conflict markers remain or the checks fail. Remove any
+markers left (`git grep -nE '^(<<<<<<<|=======|>>>>>>>)'`), keeping both sides' intent, then run
+`bash .fabro/workflows/ship/verify.sh` with a 15-minute timeout if your shell tool takes one and fix
+the cause of any failure. Follow AGENTS.md. Do not weaken, skip or delete tests.
+Never edit .fabro/, .agents/ or .github/."]
+
+    start -> prepare -> resolve -> markers
+    markers -> verify [label="Clean", condition="outcome=succeeded"]
+    markers -> fix    [label="Markers left"]
+    verify -> exit    [label="Pass", condition="outcome=succeeded"]
+    verify -> fix     [label="Fail"]
+    fix -> markers
+}

@@ -1,0 +1,34 @@
+_version = 1
+
+[workflow]
+graph = "workflow.fabro"
+
+# Resolves a factory PR's conflicts with main (factory-resolve.yml). Same environment as ship.
+# API steps go through Command Code; the stylesheet picks one per step.
+[run.model]
+name = "deepseek-v4.1-flash"
+provider = "commandcode"
+
+# Runs on this Mac: Dahlia's tests and clippy need full Xcode, which Docker cannot provide.
+[run.environment]
+id = "local"
+
+# Commands run in a non-login Bash, so the toolchain is spelled out. Each run builds in its own
+# workspace's target/: a shared CARGO_TARGET_DIR let cargo reuse another workspace's binary,
+# because cargo judges freshness by mtime and every run's files predate the last build.
+[run.environment.env]
+DEVELOPER_DIR = "/Applications/Xcode.app/Contents/Developer"
+PATH = "/Users/christianstephens/.cargo/bin:/Users/christianstephens/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# No debug info keeps each run's cold build small; the Mac has little free disk.
+CARGO_PROFILE_DEV_DEBUG = "0"
+CARGO_PROFILE_TEST_DEBUG = "0"
+# No sccache: its shared server inherits the sandbox of whichever agent starts it, and then
+# every build fails with "Operation not permitted". Each run builds fresh anyway.
+RUSTC_WRAPPER = ""
+
+# Every run, passed or failed, deletes its build output; the code stays in the workspace.
+[[run.hooks]]
+id = "drop-build-output"
+event = "run_complete"
+command = ["rm", "-rf", "target"]
+blocking = false
