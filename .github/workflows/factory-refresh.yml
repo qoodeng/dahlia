@@ -71,3 +71,18 @@ jobs:
             fi
             git switch -q --detach origin/main
           done
+
+      # A merge is a push to main, so this closes the beads of factory PRs that merged and then hands the
+      # free runner the next queued bead (closing one may unblock the next in a chain). It replaces a
+      # pull_request-triggered job: nothing a pull request can change reaches this self-hosted runner.
+      - name: Close merged beads and start the next queued bead
+        run: |
+          cd "$FACTORY_BEADS_REPO"
+          for bead in $(bd list --status in_progress --label factory --json --limit 0 | jq -r '.[].id'); do
+            pr=$(gh pr list --head "factory/$bead" --state merged --json number --jq '.[0].number // empty')
+            [ -n "$pr" ] || continue
+            bd close "$bead" --reason "Merged in PR #$pr" >/dev/null
+            echo "Closed $bead (PR #$pr)."
+          done
+          factory next 1
+
