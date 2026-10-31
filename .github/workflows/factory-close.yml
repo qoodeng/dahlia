@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: read
+  # Start the next queued beads (factory next): list runs, dispatch factory.yml.
+  actions: write
+  pull-requests: read
 
 jobs:
   close:
@@ -18,7 +21,9 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, dahlia-factory]
     env:
-      PATH: /opt/homebrew/bin:/usr/bin:/bin
+      PATH: /Users/christianstephens/.local/bin:/opt/homebrew/bin:/usr/bin:/bin
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
       FACTORY_BEADS_REPO: /Users/christianstephens/Projects/dahlia
       BEAD: ${{ github.head_ref }}
       PR: ${{ github.event.pull_request.number }}
@@ -30,3 +35,5 @@ jobs:
           # Only factory runs' branches name a bead; anything else is not the factory's to close.
           if ! bd show "$bead" >/dev/null 2>&1; then echo "$bead is not a bead; nothing to close."; exit 0; fi
           bd close "$bead" --reason "Merged in PR #$PR"
+          # Closing this bead may have unblocked the next one in a chain of dependent beads.
+          factory next 1

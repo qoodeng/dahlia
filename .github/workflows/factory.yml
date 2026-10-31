@@ -18,6 +18,9 @@ on:
 
 permissions:
   contents: read
+  # Start the next queued beads (factory next): list runs, dispatch this workflow.
+  actions: write
+  pull-requests: read
 
 concurrency:
   group: factory-${{ inputs.bead }}
@@ -92,3 +95,12 @@ jobs:
       - name: Clear the refresh flag
         if: always()
         run: cd "$FACTORY_BEADS_REPO" && bd update "$BEAD" --remove-label factory-refreshing >/dev/null || true
+
+      # This runner is free now: hand it the next queued bead that is ready. One run at a time
+      # (factory next 1) keeps the other runner free for factory-close, -refresh and -resolve,
+      # which would otherwise wait behind a run that takes tens of minutes.
+      - name: Start the next queued beads
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cd "$FACTORY_BEADS_REPO" && factory next 1
